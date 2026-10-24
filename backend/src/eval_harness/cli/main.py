@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Annotated
 
@@ -95,8 +94,15 @@ def compare(a: str, b: str) -> None:
     console.print(f"two-proportion z={r['two_proportion_z']['z']:.2f} p={r['two_proportion_z']['p_value']:.3f}   "
                   f"McNemar p={r['mcnemar']['p_value']:.3f}")
     console.print(f"[red]regressions: {r['regressions']}[/red]\n[green]improvements: {r['improvements']}[/green]")
-    if r["config_diff"]:
-        console.print("config diff:", json.dumps(r["config_diff"], default=str)[:400])
+    if r["config_changes"]:
+        console.print("\n[bold]what differs between the runs[/bold]")
+        for c in r["config_changes"]:
+            console.print(f"  {c['path']}: [red]{c['a']}[/red] -> [green]{c['b']}[/green]")
+    n_a, n_b = r["a"]["n_trials"], r["b"]["n_trials"]
+    if r["only_in_a"] or r["only_in_b"] or n_a != n_b:
+        console.print(f"\n[yellow]note: the runs are not like-for-like (trials {n_a} vs {n_b}; tasks only in A: "
+                      f"{r['only_in_a']}, only in B: {r['only_in_b']}). The headline rates cover all trials; the per-task "
+                      f"list and McNemar cover only the tasks both runs share.[/yellow]")
 
 
 @app.command("calibrate")

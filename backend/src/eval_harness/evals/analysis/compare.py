@@ -53,6 +53,7 @@ def compare(a_id: str, b_id: str, *, delta_threshold: float = 0.01) -> dict[str,
         "only_in_a": sorted(set(ca) - set(cb)), "only_in_b": sorted(set(cb) - set(ca)),
         "cost_latency": {"a": cl(ea), "b": cl(eb)},
         "config_diff": _config_diff(ea.snapshot, eb.snapshot),
+        "config_changes": config_changes(ea.snapshot, eb.snapshot),
     }
 
 
@@ -62,4 +63,30 @@ def _config_diff(a: dict, b: dict) -> dict[str, Any]:
     for k in keys:
         if a.get(k) != b.get(k):
             out[k] = {"a": a.get(k), "b": b.get(k)}
+    return out
+
+
+NOISY = {"tool_specs", "git_sha"}  # never explain a result; git sha is shown separately by `show`
+
+
+def _short(v: Any, n: int = 70) -> str:
+    text = repr(v) if not isinstance(v, str) else v
+    return text if len(text) <= n else text[: n - 1] + "…"
+
+
+def config_changes(a: Any, b: Any, path: str = "") -> list[dict[str, str]]:
+    """Readable, leaf-level list of what differs between two experiment snapshots, e.g.
+    ``target.agent_config.skills: 'all' -> 'none'``. Added/removed dict keys are summarized, not expanded."""
+    out: list[dict[str, str]] = []
+    if isinstance(a, dict) and isinstance(b, dict):
+        if set(a) != set(b) and path:
+            only_a, only_b = sorted(set(a) - set(b)), sorted(set(b) - set(a))
+            out.append({"path": path, "a": _short(f"{len(a)} entries, only here: {only_a}"),
+                        "b": _short(f"{len(b)} entries, only here: {only_b}")})
+        for k in sorted(set(a) & set(b) if path else set(a) | set(b)):
+            if k in NOISY:
+                continue
+            out += config_changes(a.get(k), b.get(k), f"{path}.{k}" if path else k)
+    elif a != b:
+        out.append({"path": path, "a": _short(a), "b": _short(b)})
     return out
