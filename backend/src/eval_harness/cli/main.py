@@ -157,9 +157,21 @@ def list_(what: Annotated[str, typer.Argument(help="suites|datasets|graders|tool
             t.add_row(n, "")
     elif what == "experiments":
         from eval_harness.storage.repositories import experiments
+
+        t = Table(show_edge=False)
+        for c in ("id", "name", "suite", "agent", "model", "k x tasks", "status", "pass"):
+            t.add_column(c, no_wrap=(c == "id"), overflow="fold" if c != "id" else "ellipsis")  # ids must stay copyable
         for e in experiments.list(30):
-            pr = e.summary.get("pass_rates", {}).get("trial_pass_rate")
-            t.add_row(e.id, f"{e.name}  {e.status}  pass={'-' if pr is None else f'{pr:.0%}'}")
+            pr = e.summary.get("pass_rates", {})
+            m = e.snapshot.get("models", {}).get("agent", {})
+            model = f"{m.get('provider', '?')}:{m.get('model', '?')}"
+            rate = pr.get("trial_pass_rate")
+            t.add_row(e.id, e.name, e.suite, e.snapshot.get("target", {}).get("agent_config", {}).get("name", "-"),
+                      f"[dim]{model} (offline)[/dim]" if m.get("provider") == "fake" else model,
+                      f"{pr.get('k', '-')} x {pr.get('n_tasks', '-')}", e.status,
+                      "-" if rate is None else f"{rate:.0%}")
+        console.print(t)
+        return
     else:
         raise typer.BadParameter(f"unknown listing '{what}'")
     console.print(t)
