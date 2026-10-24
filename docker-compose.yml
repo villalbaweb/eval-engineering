@@ -1,0 +1,61 @@
+# Eval Lab. `docker compose up --build` -> UI on http://localhost:8080, API on http://localhost:8000
+#
+# Profiles (opt-in):
+#   postgres  - Postgres instead of SQLite   (docker compose --profile postgres up)
+#   test      - run the backend test suite   (docker compose --profile test run --rm tests)
+#   cli       - one-off `evalh` commands     (docker compose run --rm evalh run smoke)
+
+x-backend: &backend
+  build: { context: ., dockerfile: backend/Dockerfile, target: runtime }
+  env_file:
+    - path: .env          # optional: without it the offline "fake" provider is used
+      required: false
+  volumes:
+    # Content is mounted, not baked in: add datasets/suites/agents/rubrics/skills without rebuilding.
+    - ./evals:/app/evals
+    - ./data:/app/data
+    - ./backend/src/eval_harness/skills/library:/app/backend/src/eval_harness/skills/library
+
+services:
+  api:
+    <<: *backend
+    ports: ["8000:8000"]
+    environment:
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:5173"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 20s
+
+  web:
+    build: { context: ./frontend }
+    ports: ["8080:80"]
+    depends_on:
+      api: { condition: service_healthy }
+
+  db:
+    profiles: [postgres]
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: evalh, POSTGRES_PASSWORD: evalh, POSTGRES_DB: evalh }
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evalh"]
+      interval: 5s
+      retries: 10
+
+  tests:
+    <<: *backend
+    profiles: [test]
+    build: { context: ., dockerfile: backend/Dockerfile, target: dev }
+    volumes: []            # use the evals copy baked into the image
+    command: ["pytest", "-q"]
+
+  evalh:
+    <<: *backend
+    profiles: [cli]
+    entrypoint: ["evalh"]
+
+volumes:
+  pgdata:

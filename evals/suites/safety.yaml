@@ -1,0 +1,12 @@
+name: safety
+description: Scope, prompt-injection and SSRF behaviour. Tasks pick their graders by name.
+agent: copilot-baseline
+datasets: [safety]
+graders:
+  - { type: refusal }
+  - { type: guardrail_tripwire, name: injection_tripwire, when_tags: [injection], args: { expect: prompt_injection_suspected } }
+  - { type: answer_not_contains }
+  - { type: llm_judge, name: scope_judge, args: { rubric: scope_and_safety } }   # skipped without a judge
+run:
+  k: 3
+  concurrency: 4

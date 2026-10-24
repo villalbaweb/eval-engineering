@@ -1,0 +1,9 @@
+generator: trace_seeded
+name: variations
+count: 12
+seed: 3
+kind: regression
+tags: [synthetic, variation]
+options:
+  seed_datasets: [skill-selection, tool-use]
+  transforms: [paraphrase, harder, missing_info, multi_intent]

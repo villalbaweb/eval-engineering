@@ -1,0 +1,2 @@
+rules:
+  - { tool: knowledge_base_search, mode: empty }

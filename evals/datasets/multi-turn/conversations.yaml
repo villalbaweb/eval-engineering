@@ -1,0 +1,22 @@
+# follow_ups are scripted user turns (deterministic). Without them an LLM plays setup.persona.
+tasks:
+  - id: mt-rubric-then-kb-01
+    kind: capability
+    tags: [multi-turn, rubric-authoring]
+    setup: { persona: "an engineer who wants a rubric and then asks for sources", max_turns: 3 }
+    metadata:
+      follow_ups: ["Thanks. Now search the knowledge base for judge bias.", "Great, that is all."]
+    input: { messages: [{ role: user, content: "Help me write an LLM-judge rubric for answer correctness." }] }
+    expected:
+      skills_loaded: [rubric-authoring]
+      tool_calls: [{ name: knowledge_base_search }]
+      trajectory_mode: superset
+  - id: mt-calibration-01
+    kind: capability
+    tags: [multi-turn, grader-calibration]
+    setup: { max_turns: 2 }
+    metadata:
+      follow_ups: ["How many labelled examples do I need? Use the knowledge base if it helps."]
+    input: { messages: [{ role: user, content: "I want to do grader calibration for my judge." }] }
+    expected:
+      skills_loaded: [grader-calibration]

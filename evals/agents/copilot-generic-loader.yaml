@@ -1,0 +1,11 @@
+name: copilot-generic-loader
+description: Same as baseline but with a single generic load_skill(name) tool (loader-mode experiment).
+prompt: copilot_system.md
+tools: all
+skills: all
+skill_loader_mode: generic
+middleware:
+  - guardrails
+  - { name: tool_call_limit, args: { run_limit: 15 } }
+  - { name: model_call_limit, args: { run_limit: 25 } }
+recursion_limit: 40

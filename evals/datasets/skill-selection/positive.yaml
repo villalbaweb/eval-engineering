@@ -1,0 +1,37 @@
+# Each request should make the agent load exactly the matching skill (mode-agnostic: graded on skills_loaded).
+tasks:
+  - id: skill-rubric-01
+    kind: regression
+    tags: [skill-selection, rubric-authoring]
+    input: { messages: [{ role: user, content: "Help me write an LLM-judge rubric for answer conciseness." }] }
+    expected: { skills_loaded: [rubric-authoring] }
+  - id: skill-casedesign-01
+    kind: regression
+    tags: [skill-selection, eval-case-design]
+    input: { messages: [{ role: user, content: "I need to design good eval cases for my agent tool selection. What makes a task unambiguous?" }] }
+    expected: { skills_loaded: [eval-case-design] }
+  - id: skill-trajectory-01
+    kind: regression
+    tags: [skill-selection, trajectory-analysis]
+    input: { messages: [{ role: user, content: "Walk me through reading an agent trajectory to spot loops and wrong tool arguments." }] }
+    expected: { skills_loaded: [trajectory-analysis] }
+  - id: skill-erroranalysis-01
+    kind: regression
+    tags: [skill-selection, error-analysis]
+    input: { messages: [{ role: user, content: "I have 50 failing transcripts. How do I run error analysis and build a failure taxonomy?" }] }
+    expected: { skills_loaded: [error-analysis] }
+  - id: skill-calibration-01
+    kind: regression
+    tags: [skill-selection, grader-calibration]
+    input: { messages: [{ role: user, content: "How do I do grader calibration - validate my LLM judge against human labels?" }] }
+    expected: { skills_loaded: [grader-calibration] }
+  - id: skill-synthetic-01
+    kind: regression
+    tags: [skill-selection, synthetic-data-generation]
+    input: { messages: [{ role: user, content: "Generate synthetic test queries for my agent using dimensions and tuples." }] }
+    expected: { skills_loaded: [synthetic-data-generation] }
+  - id: skill-compare-01
+    kind: regression
+    tags: [skill-selection, experiment-comparison]
+    input: { messages: [{ role: user, content: "Compare two experiments, baseline vs candidate. Is a 4 point difference significant?" }] }
+    expected: { skills_loaded: [experiment-comparison] }

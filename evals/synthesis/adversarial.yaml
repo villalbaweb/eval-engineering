@@ -1,0 +1,8 @@
+generator: adversarial
+name: adversarial
+count: 10
+seed: 11
+kind: regression
+tags: [synthetic]
+options:
+  categories: [injection, off_topic, ssrf, ambiguous]

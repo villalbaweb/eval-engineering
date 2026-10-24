@@ -1,0 +1,21 @@
+name: capability
+description: Hard tasks measured over k trials (pass@k / pass^k) with code graders then LLM judges.
+agent: copilot-baseline
+datasets: [grounded-answers, robustness]
+kinds: [capability]
+graders:
+  - { type: tool_called }
+  - { type: answer_contains }
+  - { type: answer_not_contains }
+  - { type: citation_grounding }
+  - { type: trajectory_match }
+  - { type: step_efficiency }
+  - { type: error_recovery }
+  - { type: skill_selection }
+  - { type: groundedness }                     # LLM judge - skipped when JUDGE_MODEL is unset
+  - { type: llm_judge, name: correctness, args: { rubric: correctness, requires: [final_answer_criteria] } }
+run:
+  k: 5
+  concurrency: 4
+  timeout_s: 120
+  fail_fast: true

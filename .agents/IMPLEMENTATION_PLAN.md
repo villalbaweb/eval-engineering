@@ -2,9 +2,31 @@
 
 > **Purpose.** A learning and experimentation lab for evaluation engineering. It runs a **toy** LangChain `create_agent` agent (tools + skills loaded via tool calling, the same shape as a real production agent). Around that agent sits a **strong, pluggable evaluation engine**, which is the actual focus: you try out eval approaches, measure them, and learn which techniques work. Applying the lessons to a real production agent is out of scope for this repo.
 >
-> **Status:** Plan only. Nothing is implemented yet.
+> **Status:** Phases P0–P7 implemented (see "Implementation status" below). Sections 1–16 are the original plan; where the build differs, the status section says so.
 > **Location:** `D:\Git\eval-engineering`
 > **Stack:** Python 3.12 + `uv` · LangChain v1 `create_agent` · OpenRouter · LangSmith · FastAPI · SQLite/Postgres · React + Vite + TypeScript · Docker Compose
+
+## Implementation status (2026-10-24)
+
+**Built and verified** (92 backend tests + 5 frontend tests, ruff clean, `tsc` + production build clean; UI exercised in a browser):
+- P0 scaffold · P1 agent harness (7 tools, 7 skills with per-skill and generic loader modes, 5 middleware + limit middleware) · P2 eval core (domain, loaders, runner, 17 code graders, metrics, SQLite, CLI) · P3 determinism (record/replay cassettes, fault injection, `replay` and `trace` targets, `regrade`) · P4 model graders (llm_judge, groundedness, trajectory_judge, pairwise with swap, judge_ensemble) · P5 UI (10 pages) · P6 human labels + calibration · P7 data sources (5 synthetic generators, traffic simulator, trace importers, review queue, multi-turn target) · LangSmith integration code · Docker files.
+
+**Differences from the plan**
+- Per-run state lives in a `RunContext` object shared by the middleware, not in a custom LangGraph `HarnessState`.
+- Skill assets are read through a `read_skill_asset` tool; skills ship in `skills/library/` and are bind-mounted in Docker.
+- The dataset editor is a validating `<textarea>` (no Monaco); TypeScript API types are hand-written (no `openapi-typescript` generation yet).
+- The offline `fake:scripted` provider was added so tests/CI/demos run without keys. It is not a measurement instrument.
+- `traces` is a suite with `target: trace` (grade logged transcripts without re-running); `data/traffic/*.jsonl` lets the trace flywheel work fully offline.
+
+**Not done (deliberately deferred)**
+- Redis/`arq` worker profile, Phoenix profile, entry-point example plugin under `plugins/`, GitHub Actions CI workflow.
+- LangSmith `evaluate()` as an alternative runner backend and the `@pytest.mark.langsmith` path (mirroring via `create_run`/`create_feedback` is implemented instead).
+- mypy is configured as a dev dependency but not enforced.
+
+**Not verified (needs your keys / Docker daemon)**
+- No real OpenRouter or LangSmith call has been made: provider wiring is verified up to the network boundary, and LangSmith dataset sync, experiment mirroring and the trace importer are written against the SDK but only their pure conversion logic is unit-tested.
+- Docker images were not built (daemon was off); `docker compose config` validates all profiles.
+- LLM-judge *quality* is untested: tests use the scripted judge, which only proves the plumbing. Calibrate real judges with E6.
 
 ---
 

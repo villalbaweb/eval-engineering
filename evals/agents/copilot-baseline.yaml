@@ -1,0 +1,12 @@
+name: copilot-baseline
+description: Baseline Eval Copilot - all tools, all skills, one loader tool per skill.
+# model: omitted -> uses AGENT settings from .env (OPENROUTER_MODEL by default)
+prompt: copilot_system.md
+tools: all
+skills: all
+skill_loader_mode: per_skill
+middleware:
+  - guardrails
+  - { name: tool_call_limit, args: { run_limit: 15 } }
+  - { name: model_call_limit, args: { run_limit: 25 } }
+recursion_limit: 40

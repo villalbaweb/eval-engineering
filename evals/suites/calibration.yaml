@@ -1,0 +1,15 @@
+name: calibration
+description: Experiment E6 - label trials by hand (Annotate view), then compare each grader with your labels.
+agent: copilot-baseline
+datasets: [grounded-answers]
+graders:
+  - { type: answer_contains }
+  - { type: citation_grounding }
+  - { type: groundedness }
+  - { type: llm_judge, name: correctness, args: { rubric: correctness, requires: [final_answer_criteria] } }
+  - { type: llm_judge, name: conciseness, args: { rubric: conciseness } }
+  - { type: human_review }
+run:
+  k: 3
+  concurrency: 4
+  fail_fast: false          # run every grader so each can be compared with the human label

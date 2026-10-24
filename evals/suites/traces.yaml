@@ -1,0 +1,15 @@
+name: traces
+description: Online-style evaluation of LOGGED traffic. Nothing is re-run - imported transcripts are graded as they are.
+target: trace
+datasets: [traces]
+graders:
+  - { type: step_efficiency }
+  - { type: tool_errors }
+  - { type: error_recovery }
+  - { type: budget, args: { max_tool_calls: 8 } }
+  - { type: groundedness }
+  - { type: llm_judge, name: conciseness, args: { rubric: conciseness } }
+run:
+  k: 1
+  concurrency: 4
+  fail_fast: false

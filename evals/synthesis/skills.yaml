@@ -1,0 +1,6 @@
+generator: skill_targeted
+name: skills
+count: 14
+seed: 5
+kind: regression
+tags: [synthetic]

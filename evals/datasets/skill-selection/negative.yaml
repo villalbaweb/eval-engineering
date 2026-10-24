@@ -1,0 +1,16 @@
+# Near-misses: no skill should be loaded.
+tasks:
+  - id: skill-neg-time-01
+    kind: regression
+    tags: [skill-selection, negative]
+    input: { messages: [{ role: user, content: "What time is it right now in UTC?" }] }
+    expected:
+      forbidden_skills: [rubric-authoring, eval-case-design, trajectory-analysis, error-analysis, grader-calibration, synthetic-data-generation, experiment-comparison]
+      tool_calls: [{ name: current_datetime }]
+  - id: skill-neg-hello-01
+    kind: regression
+    tags: [skill-selection, negative]
+    input: { messages: [{ role: user, content: "Say hello in one short sentence." }] }
+    expected:
+      forbidden_skills: [rubric-authoring, eval-case-design, trajectory-analysis, error-analysis, grader-calibration, synthetic-data-generation, experiment-comparison]
+      forbidden_tools: [web_search, fetch_url]

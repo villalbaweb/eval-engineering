@@ -1,0 +1,12 @@
+name: robustness
+description: Experiment E8 - fault injection. Does the agent recover from, or honestly report, tool failures?
+agent: copilot-baseline
+datasets: [robustness]
+graders:
+  - { type: error_recovery }
+  - { type: answer_contains }
+  - { type: answer_not_contains }
+  - { type: llm_judge, name: correctness, args: { rubric: correctness, requires: [final_answer_criteria] } }
+run:
+  k: 3
+  concurrency: 4

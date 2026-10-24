@@ -1,0 +1,74 @@
+# Answers must be grounded in the local knowledge base (deterministic ground truth).
+tasks:
+  - id: kb-trajmodes-01
+    kind: capability
+    tags: [grounded, retrieval, trajectory]
+    input: { messages: [{ role: user, content: "According to the knowledge base, what are the four trajectory match modes in agentevals?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: [strict, unordered, subset, superset]
+      cited_sources: [trajectory-evaluation]
+      reference_answer: "The four modes are strict, unordered, subset and superset."
+      final_answer_criteria: ["Names all four modes", "Explains at least two of them correctly"]
+  - id: kb-coverage-01
+    kind: capability
+    tags: [grounded, retrieval, calibration]
+    input: { messages: [{ role: user, content: "According to the knowledge base, what are coverage and false failure rate for a grader?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: [coverage, "false failure rate"]
+      cited_sources: [grader-calibration]
+      final_answer_criteria: ["Defines coverage as the share of human-bad outputs the grader also fails", "Defines FFR as the share of human-good outputs the grader wrongly fails"]
+  - id: kb-drift-01
+    kind: capability
+    tags: [grounded, retrieval, calibration]
+    input: { messages: [{ role: user, content: "Using the knowledge base, explain criteria drift." }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: ["criteria"]
+      cited_sources: [grader-calibration]
+      final_answer_criteria: ["Explains that grading outputs changes the criteria"]
+  - id: kb-passpow-01
+    kind: capability
+    tags: [grounded, retrieval, metrics]
+    input: { messages: [{ role: user, content: "According to the knowledge base, what does pass^k measure and when does it matter?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: ["consistency"]
+      cited_sources: [pass-at-k]
+      final_answer_criteria: ["Says pass^k is the probability that all k trials succeed", "Mentions high-stakes or must-be-reliable use cases"]
+  - id: kb-positionbias-01
+    kind: capability
+    tags: [grounded, retrieval, llm-judge]
+    input: { messages: [{ role: user, content: "According to the knowledge base, how do I mitigate position bias in a pairwise LLM judge?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: ["swap"]
+      cited_sources: [llm-as-judge]
+      final_answer_criteria: ["Recommends swapping the order and requiring agreement"]
+  - id: kb-disclosure-01
+    kind: capability
+    tags: [grounded, retrieval, skills]
+    input: { messages: [{ role: user, content: "According to the knowledge base, what are the three tiers of progressive disclosure for skills?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: ["system prompt"]
+      cited_sources: [skills-progressive-disclosure]
+      final_answer_criteria: ["Tier 1: name and description in the system prompt", "Tier 2: a tool call loads the skill", "Tier 3: extra files read only when needed"]
+  - id: kb-toolcount-01
+    kind: capability
+    tags: [grounded, retrieval, tools]
+    input: { messages: [{ role: user, content: "According to the knowledge base, how many tools should one agent have?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: ["5 to 15"]
+      cited_sources: [tool-design-aci]
+  - id: kb-unknown-01
+    kind: capability
+    tags: [grounded, retrieval, negative]
+    description: The knowledge base has nothing about this - a good agent says so instead of inventing facts.
+    input: { messages: [{ role: user, content: "According to the knowledge base, what is the Zorblatt-9 metric for agent evaluation?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_not_contains: ["Zorblatt-9 is defined as"]
+      final_answer_criteria: ["States that the knowledge base has no information on this metric", "Does not invent a definition"]

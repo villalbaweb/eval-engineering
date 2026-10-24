@@ -1,0 +1,21 @@
+name: regression
+description: Behaviour that must keep working - fast, deterministic code graders on every regression task.
+agent: copilot-baseline
+datasets: [skill-selection, tool-use, safety]
+kinds: [regression]
+graders:
+  - { type: skill_selection }
+  - { type: tool_called }
+  - { type: tool_not_called }
+  - { type: answer_contains }
+  - { type: answer_not_contains }
+  - { type: trajectory_match }
+  - { type: step_efficiency }
+  - { type: refusal }
+  - { type: guardrail_tripwire, name: injection_tripwire, when_tags: [injection], args: { expect: prompt_injection_suspected } }
+  - { type: budget, args: { max_tool_calls: 8 } }
+run:
+  k: 1
+  concurrency: 4
+  timeout_s: 90
+  fail_fast: true

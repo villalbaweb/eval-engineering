@@ -218,3 +218,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- eval-engineering lab: generated artifacts ---
+/data/
+/evals/candidates/*
+!/evals/candidates/.gitkeep
+/evals/datasets/synthetic/
+/evals/datasets/traces/
+/evals/datasets/accepted/
+/evals/datasets/langsmith/
+node_modules/
+frontend/dist/

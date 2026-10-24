@@ -1,0 +1,10 @@
+name: copilot-no-skills
+description: Ablation - no skills; shows what the skills actually contribute.
+prompt: copilot_system.md
+tools: all
+skills: none
+middleware:
+  - guardrails
+  - { name: tool_call_limit, args: { run_limit: 15 } }
+  - { name: model_call_limit, args: { run_limit: 25 } }
+recursion_limit: 40

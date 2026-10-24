@@ -1,0 +1,9 @@
+generator: multiturn_personas
+name: personas
+count: 3
+seed: 2
+kind: capability
+tags: [synthetic]
+dimensions:
+  topic: [how to read agent trajectories, how to calibrate an LLM judge, how to compare two experiments]
+  persona: [impatient engineer, careful researcher, confused beginner]

@@ -1,0 +1,19 @@
+# Development conveniences, applied automatically by `docker compose up`.
+# - API reloads when backend code changes
+# - the web service is replaced by the Vite dev server with hot reload on http://localhost:5173
+services:
+  api:
+    volumes:
+      - ./evals:/app/evals
+      - ./data:/app/data
+      - ./backend/src:/app/backend/src
+    command: ["uvicorn", "eval_harness.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload",
+              "--reload-dir", "/app/backend/src"]
+
+  web:
+    build: { context: ./frontend, dockerfile: Dockerfile.dev }
+    ports: !override ["5173:5173"]
+    environment:
+      API_URL: http://api:8000
+    volumes:
+      - ./frontend/src:/app/src

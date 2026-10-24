@@ -1,0 +1,11 @@
+name: skill-selection
+description: Experiment E2 - does the agent load the right skill? Run with copilot-baseline vs copilot-generic-loader.
+agent: copilot-baseline
+datasets: [skill-selection]
+graders:
+  - { type: skill_selection, args: { strict_precision: true } }
+  - { type: step_efficiency, args: { max_steps: 6 } }
+run:
+  k: 3
+  concurrency: 4
+  timeout_s: 90

@@ -1,0 +1,18 @@
+# Dimensional generation: intent x persona x difficulty. The intent carries the expected evidence,
+# so the label comes from the tuple - never from the generated text (no label leakage).
+name: skill-queries
+generator: dimensional
+count: 12
+seed: 7
+kind: regression
+tags: [synthetic, skill-selection]
+dimensions:
+  intent:
+    "design a rubric for an LLM judge": { skills_loaded: [rubric-authoring] }
+    "turn failing transcripts into a failure taxonomy": { skills_loaded: [error-analysis] }
+    "check whether my LLM judge agrees with human labels": { skills_loaded: [grader-calibration] }
+    "decide if experiment B is really better than experiment A": { skills_loaded: [experiment-comparison] }
+    "read an agent trajectory step by step to find the first mistake": { skills_loaded: [trajectory-analysis] }
+    "create diverse synthetic test queries for my agent": { skills_loaded: [synthetic-data-generation] }
+  persona: [novice engineer, expert researcher, terse manager]
+  difficulty: [one short sentence, detailed with context]

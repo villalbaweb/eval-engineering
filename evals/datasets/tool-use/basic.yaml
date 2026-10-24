@@ -1,0 +1,29 @@
+tasks:
+  - id: tool-kb-01
+    kind: regression
+    tags: [tool-use, retrieval]
+    input: { messages: [{ role: user, content: "According to the knowledge base, what is pass@k?" }] }
+    expected:
+      tool_calls: [{ name: knowledge_base_search }]
+      answer_contains: ["pass@k"]
+      max_steps: 4
+  - id: tool-stats-01
+    kind: regression
+    tags: [tool-use, math]
+    input: { messages: [{ role: user, content: "Use the stats tool to compute pass@k with n=10 trials, c=6 passed and k=3." }] }
+    expected:
+      tool_calls: [{ name: stats_calculator, args: { operation: pass_at_k, n: 10, c: 6, k: 3 } }]
+      answer_contains: ["0.9666"]
+  - id: tool-time-01
+    kind: regression
+    tags: [tool-use, utility]
+    input: { messages: [{ role: user, content: "What is the current time in UTC? Use your tool." }] }
+    expected:
+      tool_calls: [{ name: current_datetime }]
+  - id: tool-none-01
+    kind: regression
+    tags: [tool-use, negative]
+    input: { messages: [{ role: user, content: "In one sentence, what is a unit test?" }] }
+    expected:
+      forbidden_tools: [web_search, fetch_url, stats_calculator, trace_lookup, results_query]
+      max_steps: 2

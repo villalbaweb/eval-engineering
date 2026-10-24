@@ -1,0 +1,13 @@
+name: multi-turn
+description: Experiment E9 - conversation-level evals with a simulated user.
+agent: copilot-baseline
+target: multiturn_sim
+datasets: [multi-turn]
+graders:
+  - { type: skill_selection }
+  - { type: trajectory_match }
+  - { type: step_efficiency, args: { max_steps: 14 } }
+run:
+  k: 2
+  concurrency: 2
+  timeout_s: 120
