@@ -18,11 +18,15 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # LangChain / LangSmith read their configuration straight from ``os.environ``,
 # so the .env file must be exported to the process environment, not only parsed.
-load_dotenv(REPO_ROOT / ".env", override=False)
+# EVAL_HARNESS_NO_DOTENV=1 makes the process ignore .env entirely (the test suite sets it so a developer's
+# real keys can never leak into tests).
+USE_DOTENV = not os.environ.get("EVAL_HARNESS_NO_DOTENV")
+if USE_DOTENV:
+    load_dotenv(REPO_ROOT / ".env", override=False)
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=REPO_ROOT / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(REPO_ROOT / ".env") if USE_DOTENV else None, extra="ignore")
 
     evals_dir: Path = Field(default=REPO_ROOT / "evals", alias="EVALS_DIR")
     data_dir: Path = Field(default=REPO_ROOT / "data", alias="DATA_DIR")
@@ -38,10 +42,19 @@ class Settings(BaseSettings):
 
     @property
     def db_url(self) -> str:
-        if self.database_url:
-            return self.database_url
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        return f"sqlite:///{(self.data_dir / 'eval_harness.db').as_posix()}"
+        """Database URL. Relative sqlite paths resolve against the repo root (never the cwd) and
+        their folder is created, so ``sqlite:///./data/x.db`` works from any directory."""
+        if not self.database_url:
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            return f"sqlite:///{(self.data_dir / 'eval_harness.db').as_posix()}"
+        prefix = "sqlite:///"
+        if self.database_url.startswith(prefix) and ":memory:" not in self.database_url:
+            path = Path(self.database_url[len(prefix):])
+            if not path.is_absolute():
+                path = REPO_ROOT / path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return f"{prefix}{path.as_posix()}"
+        return self.database_url
 
     @property
     def langsmith_enabled(self) -> bool:

@@ -3,7 +3,7 @@
 How to run every feature of the lab, step by step. Each section says **what it is for**, **the exact commands**, **what you should see**, and **how to read it**. Commands were run against this repository; anything not verified against a real service is marked ⚠.
 
 - [0. First 30 minutes (guided path)](#0-first-30-minutes-guided-path)
-- [1. Setup and configuration](#1-setup-and-configuration)
+- [1. Setup and configuration](#1-setup-and-configuration) (incl. [1.5 cost control and offline mode](#15-cost-control-and-offline-mode))
 - [2. Starting the stack](#2-starting-the-stack)
 - [3. CLI cheat sheet](#3-cli-cheat-sheet)
 - [4. Feature runbooks](#4-feature-runbooks)
@@ -22,6 +22,7 @@ Conventions: `$` commands run from `backend/` unless stated. `uv run evalh …` 
 ## 0. First 30 minutes (guided path)
 
 Works with **no API keys** (offline "scripted" model; it exercises the plumbing, it does not measure anything real).
+**If you already have a real `.env`, prefix every command with `EVAL_HARNESS_NO_DOTENV=1` to stay free of charge** (details: [1.5](#15-cost-control-and-offline-mode)).
 
 ```bash
 cd backend && uv sync
@@ -87,6 +88,112 @@ The UI sidebar footer and **Catalog → models** show the same. Yellow banners i
 uv run evalh run smoke --max-tasks 3
 ```
 Expect `model=openrouter:openai/gpt-4o-mini` in the header and non-zero tokens/cost. Slugs can be removed by OpenRouter; a 404 from the provider means pick another slug.
+
+### 1.5 Cost control and offline mode
+
+**Rule of thumb:** nothing in the lab spends money unless a real provider key is *visible to the process*. Keys are visible if they are in `.env` (read at startup) **or** already in the environment (shell, Windows user variables, or Docker `env_file`). The settings below control exactly which of those the process uses.
+
+#### 1.5.1 What can cost money
+
+| Activity | Role / service | Calls it makes |
+|---|---|---|
+| Any experiment trial, Playground chat, traffic session | **agent** model | ≥ 2 per trial (tool-call step + final answer), one more per extra tool round; × `k` × tasks |
+| `llm_judge`, `groundedness`, `trajectory_judge` | **judge** model | 1 per trial where the grader runs (`fail_fast` skips them when a cheaper grader already failed) |
+| `pairwise_judge` | judge | 2 per trial with `swap: true` (default), 1 with `swap: false` |
+| `judge_ensemble` | judge | 3 per trial by default, or `len(models)` |
+| `multi-turn` without scripted `follow_ups` | **simulator** model | 1 per extra turn |
+| `evalh synthesize` (dimensional, trace_seeded, skill_targeted, multiturn_personas) | **synthesizer** model (falls back to the judge's settings) | 1 per generated task (2 per pair for skill_targeted / personas). `adversarial` makes **0** calls |
+| `evalh traffic` | agent **and** synthesizer | 1 synthesizer call + the agent calls per session |
+| `web_search` tool (agent decides to call it) | **Tavily** credits when `TAVILY_API_KEY` is set; otherwise DuckDuckGo (free, rate-limited) | 1 per call |
+| Tracing / mirroring | **LangSmith** (quota/plan, not tokens) | every trial is traced; every experiment is mirrored when enabled |
+| `evalh regrade`, `replay`/`trace` targets, `evalh show/compare/calibrate`, dataset editing, UI browsing | – | **agent: 0**. Only the model graders cost (regrade) or nothing at all |
+| `fetch_url`, `knowledge_base_search`, `stats_calculator`, `current_datetime`, `trace_lookup`, `results_query` | local / free | – |
+
+#### 1.5.2 Modes (verified)
+
+| Mode | Agent | Judge / simulator / synthesizer | LangSmith | Tavily | Costs money? |
+|---|---|---|---|---|---|
+| **Normal** (`.env` with keys) | your provider | your provider | on if key + tracing | on if key | **yes** |
+| `LLM_PROVIDER=fake` **only** | offline | **still your provider** (`JUDGE_PROVIDER`, `SIMULATOR_PROVIDER` come from `.env`) | on | on | **yes, partly. Do not rely on this** |
+| **`EVAL_HARNESS_NO_DOTENV=1`** | offline | offline | off | off | **no** (but see 1.5.7: shell variables) |
+| **Explicit overrides** (list below) | offline | offline | off | off | **no**, works even when keys arrive as environment variables (Docker) |
+
+Explicit override set (all of them; each one closes a different leak):
+```
+LLM_PROVIDER=fake  JUDGE_PROVIDER=fake  SIMULATOR_PROVIDER=fake  SYNTHESIZER_PROVIDER=fake
+LANGSMITH_TRACING=false  LANGCHAIN_TRACING_V2=false     # the legacy LANGCHAIN_TRACING_V2 variable may keep tracing on by itself
+TAVILY_API_KEY=                                          # empty -> DuckDuckGo fallback (free)
+```
+Process environment always wins over `.env` (`.env` never overrides a variable that is already set), which is why this works.
+
+#### 1.5.3 Exact commands
+
+```bash
+# bash / Git Bash - zero cost, ignores .env completely
+EVAL_HARNESS_NO_DOTENV=1 uv run evalh run smoke
+EVAL_HARNESS_NO_DOTENV=1 uv run evalh serve --port 8001      # the API (and therefore the whole UI) is offline too
+```
+```powershell
+# PowerShell - applies to every command in this window until removed
+$env:EVAL_HARNESS_NO_DOTENV = "1"
+uv run evalh run smoke
+Remove-Item Env:EVAL_HARNESS_NO_DOTENV                        # back to real models
+```
+```cmd
+:: cmd.exe
+set EVAL_HARNESS_NO_DOTENV=1 && uv run evalh run smoke
+```
+`EVAL_HARNESS_NO_DOTENV` is read when the Python process starts. Setting it in a terminal does not affect an API server that is already running: restart the server with the flag.
+
+#### 1.5.4 Docker (the flag is not enough)
+
+Compose passes `.env` as **real environment variables** (`env_file`), so `EVAL_HARNESS_NO_DOTENV` cannot hide them. Use one of:
+```bash
+# 1) one-off, explicit overrides win over env_file
+docker compose --profile cli run --rm \
+  -e LLM_PROVIDER=fake -e JUDGE_PROVIDER=fake -e SIMULATOR_PROVIDER=fake -e SYNTHESIZER_PROVIDER=fake \
+  -e LANGSMITH_TRACING=false -e LANGCHAIN_TRACING_V2=false -e TAVILY_API_KEY= \
+  evalh run smoke
+# 2) for a running stack: temporarily move the file away, then restart
+mv .env .env.real && docker compose up -d --force-recreate      # and mv .env.real .env to go back
+```
+(Compose runs without `.env`: the `env_file` is marked optional and the lab falls back to the offline model.) ⚠ These Docker commands follow from how compose treats `env_file`/`-e`; they were not run because the Docker daemon was off.
+
+#### 1.5.5 Check before you run (30 seconds, spends nothing)
+
+```bash
+cd backend
+uv run python -c "import os; from eval_harness.llm.settings import resolve_role as r; from eval_harness.core.settings import get_settings as g; print({x: r(x).slug for x in ('agent','judge','simulator','synthesizer')}, '| langsmith:', g().langsmith_enabled, '| tavily:', bool(os.environ.get('TAVILY_API_KEY')), '| LANGCHAIN_TRACING_V2:', os.environ.get('LANGCHAIN_TRACING_V2'))"
+```
+Read it like this:
+- every slug starts with `fake:` → **no model spend** (the text after `fake:` is cosmetic; the scripted model ignores it)
+- `langsmith: True` → traces and mirrored experiments go to LangSmith
+- `tavily: True` → the agent's web searches use Tavily credits
+- `LANGCHAIN_TRACING_V2: true` → legacy tracing may be on even if `langsmith: False`; override it as in 1.5.2
+
+Run it with the same flags/variables you will use for the real command (e.g. prefixed with `EVAL_HARNESS_NO_DOTENV=1`).
+
+Also: the UI sidebar footer (`agent: … judge: …`), **Catalog → models**, and the header line of every `evalh run` (`model=…`) show what is in effect. A run header that says `model=fake:scripted` cannot have spent model money.
+
+#### 1.5.6 Keeping real runs cheap
+
+1. **Develop offline, confirm with a real model.** Use the scripted model while writing tasks, graders and suites; run the real model only for the final numbers.
+2. **Start small:** `--max-tasks 3 --k 1` first; the cost scales with `tasks × k × (agent calls + judge calls)`.
+3. **Cheap graders first (default):** keep `fail_fast: true` so judges only run on trials that passed the code checks. `calibration` sets it to `false` on purpose (expect more judge calls there).
+4. **Do not re-run the agent to change a grader:** `evalh regrade <id>` costs only the model-graded layers.
+5. **Record once, replay many:** `--tool-mode record` once, then `--tool-mode replay` removes Tavily/web costs and flakiness.
+6. **Pick the model per role:** a small agent model, and a stronger judge only where model graders run. Never leave `JUDGE_MODEL` equal to the agent model (the run is flagged *self-judged*).
+7. **Cap the loops:** `tool_call_limit` / `model_call_limit` in the agent YAML bound runaway agents; `timeout_s` bounds a trial.
+8. **Watch the numbers:** the results page and CLI show `tokens` and `cost` per experiment (`cost` appears only when the provider returns it with each response, otherwise "n/a" ⚠). Compare `tokens_total` between runs.
+9. **Synthesis and traffic spend too:** prefer `evalh synthesize adversarial` (0 calls) while experimenting, and a small `--n` for `traffic`.
+10. **Provider-side guardrail:** set a spending limit on the OpenRouter key itself; the lab cannot enforce one.
+
+#### 1.5.7 Gotchas
+
+- **Shell/OS variables beat the flag.** `EVAL_HARNESS_NO_DOTENV` only skips the `.env` *file*. If `OPENROUTER_API_KEY` etc. are also set in Windows environment variables or exported in your shell, they are still used; check with 1.5.5.
+- **Verified on this machine with the normal `.env`:** agent, judge and simulator all resolved to the OpenRouter model, LangSmith was on and Tavily was on.
+- The **tests** never read `.env` (they set `EVAL_HARNESS_NO_DOTENV=1` themselves), so `uv run pytest` is always free.
+- Offline results are **not measurements**: the scripted model only proves that plumbing works. Do not compare offline pass rates with real ones.
 
 ---
 
@@ -468,6 +575,7 @@ docker compose down                                      # stop (add -v to drop 
 - `./evals`, `./data` and the skills library are **bind-mounted**: edit tasks/suites/agents/rubrics/skills on the host and they are picked up without rebuilding (API restart/reload may be needed for the Catalog).
 - Add Python deps/providers: edit `backend/pyproject.toml`, `uv lock`, rebuild; bake extras with `--build-arg UV_EXTRAS="--extra postgres --extra anthropic"`.
 - Healthcheck: `curl localhost:8000/health`. `web` waits for `api` to be healthy.
+- **Cost:** `.env` is passed to the containers as real environment variables, so the `EVAL_HARNESS_NO_DOTENV` flag does not work there; see [1.5.4](#154-docker-the-flag-is-not-enough) for the offline overrides.
 - ⚠ The images have not been built in this repo's verification (the Docker daemon was not running); `docker compose config` validates all profiles. If a build fails, fix and note it here.
 
 ---
@@ -543,9 +651,11 @@ Reset (manual, destructive - make sure you mean it): delete `data/eval_harness.d
 
 | Symptom | Cause / fix |
 |---|---|
+| `OperationalError: unable to open database file` | a relative `sqlite:///./...` `DATABASE_URL` pointed at a folder that did not exist (older `.env.example` shipped one). Fixed: relative sqlite paths now resolve from the repo root and the folder is created. Simplest: leave `DATABASE_URL` unset (default `data/eval_harness.db`) |
 | UI says API error / blank lists | API not running, or on another port → `API_URL=http://localhost:8001 npm run dev`. `curl <api>/health` |
 | `localhost:8000` answers with some other JSON | another app owns the port → start the lab API on `--port 8001` |
 | `uv run …` fails: cannot remove `evalh.exe` (Windows) | the API server is running; stop it, retry |
+| Unexpected charges / LangSmith still receives traces during an "offline" run | a key reached the process some other way: shell/Windows variables, Docker `env_file`, or the legacy `LANGCHAIN_TRACING_V2=true`. Run the check in [1.5.5](#155-check-before-you-run-30-seconds-spends-nothing) and use the explicit override set in 1.5.2 |
 | `LLM judge` graders all `skipped` | `JUDGE_MODEL` unset (by design). Set it in `.env` and restart the API |
 | `self-judged` warning | judge model equals agent model |
 | Provider 404 / "model not found" | OpenRouter slug removed or misspelt; pick a current slug at openrouter.ai/models |
@@ -559,6 +669,7 @@ Reset (manual, destructive - make sure you mean it): delete `data/eval_harness.d
 | Web search returns errors | no `TAVILY_API_KEY` → DuckDuckGo fallback is rate-limited; set the key, or use record/replay |
 | Candidates "duplicates_dropped" is high | generator count is higher than distinct combinations (or the offline template repeats); add dimension values / real synthesizer model |
 | `docker compose` cannot connect to the API | Docker daemon not running; start Docker Desktop |
+| Tests use my real keys / are slow | they must not: `tests/conftest.py` sets `EVAL_HARNESS_NO_DOTENV=1` so `.env` is ignored. If a test run takes minutes, that guard is broken |
 | Tests touch my real data | they should not: `tests/conftest.py` redirects DB/data/evals to a temp dir. If you see otherwise, that is a bug |
 
 Debug logging: `uv run evalh -v run smoke`. Re-print any past run with `evalh show <id>`; inspect a trial in the UI. The scripted offline model is a plumbing tool, not a measuring instrument: conclusions need a real model.

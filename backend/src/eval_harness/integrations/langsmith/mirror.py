@@ -34,8 +34,12 @@ class ExperimentMirror(RunnerHook):
             description=f"eval-harness experiment {exp.id}",
             metadata={"experiment_id": exp.id, "suite": exp.suite, "git_sha": exp.snapshot.get("git_sha"),
                       "model": exp.snapshot.get("models", {}).get("agent", {}).get("model")})
+        # LangSmith deprecates feedback without a session (project) / trace id; every mirrored run is a root run,
+        # so its trace id is its own run id (added per run below).
+        session_id = getattr(project, "id", None)
         for t in trials:
             run_id = uuid.uuid4()
+            scope = {"trace_id": run_id, **({"session_id": session_id} if session_id else {})}
             tr = t.transcript
             c.create_run(
                 id=run_id, name=t.task_id, run_type="chain", project_name=exp.name,
@@ -51,6 +55,6 @@ class ExperimentMirror(RunnerHook):
             for g in t.grades:
                 if g.skipped or g.score is None:
                     continue
-                c.create_feedback(run_id, key=g.grader, score=g.score, comment=g.rationale[:500])
-            c.create_feedback(run_id, key="trial_passed", score=1.0 if t.passed else 0.0)
+                c.create_feedback(run_id, key=g.grader, score=g.score, comment=g.rationale[:500], **scope)
+            c.create_feedback(run_id, key="trial_passed", score=1.0 if t.passed else 0.0, **scope)
         exp.langsmith_url = getattr(project, "url", None) or None

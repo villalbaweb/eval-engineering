@@ -13,6 +13,7 @@ shutil.copytree(_REPO / "evals", _TMP / "evals",
 (_TMP / "evals" / "cassettes").mkdir()
 
 os.environ.update({
+    "EVAL_HARNESS_NO_DOTENV": "1",  # never read the developer's real .env (keys!) in tests
     "LLM_PROVIDER": "fake",
     "EVALS_DIR": str(_TMP / "evals"),
     "DATA_DIR": str(_TMP / "data"),
@@ -22,7 +23,8 @@ os.environ.update({
     "LANGSMITH_API_KEY": "",
 })
 for var in ("JUDGE_MODEL", "JUDGE_PROVIDER", "AGENT_MODEL", "OPENROUTER_API_KEY", "GOOGLE_API_KEY",
-            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY"):
+            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY", "LANGCHAIN_API_KEY", "SIMULATOR_MODEL",
+            "SIMULATOR_PROVIDER", "OPENROUTER_MODEL", "OPENROUTER_BASE_URL"):
     os.environ.pop(var, None)
 
 import pytest  # noqa: E402

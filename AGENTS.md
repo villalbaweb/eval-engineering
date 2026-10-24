@@ -18,7 +18,7 @@ cd frontend && npm run typecheck && npm test && npm run build
 ```
 
 ## Rules that matter
-- **Tests never use the network or real models**: `tests/conftest.py` forces `LLM_PROVIDER=fake`, tmp DB/data, a private copy of `evals/`. Keep it that way.
+- **Tests never use the network or real models, and never read `.env`** (`EVAL_HARNESS_NO_DOTENV=1`): `tests/conftest.py` forces `LLM_PROVIDER=fake`, tmp DB/data, a private copy of `evals/`. Keep it that way.
 - A grader with nothing to check returns `self.skip(...)`, never a fake pass. A broken grader must not crash a run (pipeline catches it).
 - Tool functions return failures as text starting with `ERROR` (the agent must be able to recover); they never raise.
 - Judge model must differ from the agent model; model graders skip when `JUDGE_MODEL` is unset.
