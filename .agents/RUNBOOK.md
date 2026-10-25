@@ -21,23 +21,167 @@ Conventions: `$` commands run from `backend/` unless stated. `uv run evalh …` 
 
 ## 0. First 30 minutes (guided path)
 
-Works with **no API keys** (offline "scripted" model; it exercises the plumbing, it does not measure anything real).
-**If you already have a real `.env`, prefix every command with `EVAL_HARNESS_NO_DOTENV=1` to stay free of charge** (details: [1.5](#15-cost-control-and-offline-mode)).
+A walk through the lab in the order that teaches the most. For every command you get: **what it does**, **how it works inside**, **what to look for**, and **what you learn**. The "real run" notes are from an actual run with `openai/gpt-4o-mini` as agent (and judge), so you can compare your own numbers.
 
-```bash
-cd backend && uv sync
-uv run evalh run smoke                 # 1. first experiment (8 tasks, ~2 s)
-uv run evalh run skill-selection --agent copilot-no-skills --name ablation   # 2. an ablation: skills removed
-uv run evalh list experiments          # 3. note the two experiment ids
-uv run evalh compare <smoke-id> <ablation-id>      # 4. regressions first, with p-values
-uv run evalh run capability --k 3      # 5. k trials -> pass@k / pass^k / flaky vs systematic
-uv run evalh traffic --n 20 --fault-rate 0.4       # 6. simulate logged traffic (some sessions hit tool faults)
-uv run evalh import-traces --adapter jsonl --limit 20
-uv run evalh candidates                # 7. review queue
-```
-Then start the API and UI (section 2) and open **Playground → Experiments → an experiment → a trial → Annotate → Calibration**.
+**Before you start**
+- Works with **no API keys** (offline "scripted" model: it exercises the plumbing, it does not measure anything real).
+- **If you already have a real `.env`, prefix every command with `EVAL_HARNESS_NO_DOTENV=1` to stay free of charge** (details: [1.5](#15-cost-control-and-offline-mode)). The "cost" column below is what each step spends **with a real `.env`**.
+- Run from `backend/` (or see the Conventions line above for the repo root).
 
-With real models (OpenRouter), after filling `.env` (section 1): repeat step 1 and 5 and compare the numbers with the offline run.
+### 0.1 The path at a glance
+
+| # | Command | In one line | Cost with real `.env` |
+|---|---|---|---|
+| 1 | `uv run evalh run smoke` | first experiment: does the agent pick the right skill/tool on 8 tasks? | agent calls (8 trials) |
+| 2 | `uv run evalh run skill-selection --k 3 --name baseline` | the reference run for an honest comparison | agent calls (27 trials) |
+| 3 | `uv run evalh run skill-selection --k 3 --agent copilot-no-skills --name ablation` | control: same tasks with the skills removed | agent calls (27 trials) |
+| 4 | `uv run evalh list experiments` | history of every run, with model, suite and k | free |
+| 5 | `uv run evalh compare <baseline-id> <ablation-id>` | what changed between two runs, with significance tests | free |
+| 6 | `uv run evalh run capability --k 3` | hard tasks, repeated, graded by code **and** LLM judges | agent + judge calls (33 trials) |
+| 7 | `uv run evalh traffic --n 20 --fault-rate 0.4` | simulate "production" users, some with tool failures | agent + synthesizer calls (20 sessions) |
+| 8 | `uv run evalh import-traces --adapter jsonl --limit 20` | turn logged sessions into reviewable candidate tasks | free |
+| 9 | `uv run evalh candidates` (+ `--accept …`) | review queue: look, then accept the ones worth keeping | free |
+| 10 | `uv run evalh run traces` | grade the logged sessions as they are (nothing re-run) | judge calls only |
+| 11 | *(optional)* `evalh regrade <id>` · `evalh calibrate` | change graders without re-running the agent · check graders against your labels | judge calls · free |
+
+Afterwards start the API and UI (section 2) and open **Playground → Experiments → an experiment → a trial → Annotate → Calibration**.
+
+### 0.2 Step by step
+
+#### Step 1 · `evalh run smoke`: your first experiment
+**What it does.** Runs 8 small tasks against the agent and prints a metrics table. The 8 tasks are the first of the `skill-selection` and `tool-use` datasets: 6 requests that should make the agent load a specific skill (rubric, trajectory, error analysis, …) and 2 "negative" requests (say hello, what time is it) that should load none.
+
+**How it works.**
+1. The suite file `evals/suites/smoke.yaml` names the datasets, the agent (`copilot-baseline`) and the graders.
+2. For each task the runner builds a fresh agent with `create_agent` (the model, the 7 tools, one loader tool per skill, and the middleware), sends the user message, and records everything as a **transcript**: messages, tool calls with arguments and results, skills loaded, tokens, latency.
+3. Each trial is graded in **layers**: cheap code checks first (`skill_selection`, `tool_called`, `tool_not_called`, `answer_contains`), then `step_efficiency`. If a cheaper layer fails, the next layer is skipped (`fail_fast`).
+4. Trials are saved to SQLite, summarized (pass rate, CI, by grader, by tag, flaky/systematic, cost), and mirrored to LangSmith when enabled.
+
+**What to look for.** `trial pass rate`; the **failed trials** table (which grader failed and why); `by grader`: `n` is how many trials the grader judged and `skipped` how many it had nothing to check on (e.g. `answer_contains` is 0 here: no smoke task has a text expectation).
+
+**What you learn.** The grader tests the **process** ("was the skill loaded?"), not just the answer text. *Real run:* 5 of 8 passed (62%). The 3 failures were the same behaviour: the model answered from its own knowledge **without loading the skill** (two used no tool at all, one searched the knowledge base instead). The answers were plausible; only the process was wrong. Skill **under-triggering** is a real finding about the agent. With 8 trials the 95% interval is wide (25%–100%): small suites tell you where to look, not how good the agent is.
+
+#### Steps 2 and 3 · baseline and ablation: a control experiment
+**What they do.** Run the **same suite** (`skill-selection`, 9 tasks, 3 trials each) twice: once with the normal agent and once with `copilot-no-skills`, which has no skills and no loader tools. Using the same suite and `--k 3` for both makes the comparison fair (step 1's smoke run used different tasks and k).
+
+**How it works.** The agent config is data (`evals/agents/*.yaml`). Switching `--agent` swaps `skills: all` for `skills: none`; nothing else changes. The experiment stores a snapshot of the config, so the difference is recorded.
+
+**What to look for (ablation).** Only the 2 negative tasks can pass (6 of 27 trials = 22%); all 21 positive trials must fail. `step_efficiency` shows many skipped because the failed `skill_selection` layer short-circuits it.
+
+**What you learn.** An ablation is a **test of the test**: if removing the skills did *not* make the score collapse, the evaluation would not be measuring skills. It also gives the **floor** to compare the baseline against. *Real run:* `pass@k = pass^k = 22%` and `flaky=[]`: every task either passed 3 of 3 or failed 3 of 3. The agent's *words* differed in each trial but its *decision* (load a skill or not) did not, and the grader judges the decision. Skills also cost tokens: in the two tasks compared (one trial each, so anecdotal) a trial with a loaded skill used about 3× the tokens of the same task without skills, because the skill text is injected and one more model round happens.
+
+#### Step 4 · `evalh list experiments`: your history
+**What it does.** Lists every stored experiment: id, name, suite, agent, **model** (offline runs are marked `(offline)`), `k × tasks`, status and pass rate.
+
+**How it works.** Reads the `experiments` table in `data/eval_harness.db`. The id is what you pass to `show`, `compare` and `regrade`.
+
+**What you learn.** Only compare runs with the **same suite, k and (usually) model**. Offline `fake:scripted` rows and real-model rows are not comparable; different suites measure different things (a `regression` 94% and a `capability` 55% are not a ranking). Give runs a `--name` so the list stays readable.
+
+#### Step 5 · `evalh compare A B`: what changed, and is it real?
+**What it does.** Compares run B against run A: pass-rate difference, two significance tests, tasks that regressed or improved, and a plain list of what differs between the two configs (e.g. `skills: all -> none`, `run.k: 1 -> 3`).
+
+**How it works.** Matches tasks present in both runs; computes each task's pass rate in A and B; then runs
+- a **two-proportion z-test** over all trials (treats every trial as independent: optimistic when trials are repeats of the same task), and
+- **McNemar** over the tasks both runs share (paired: more honest, but needs enough tasks to flip to reach significance).
+
+If the two runs are not like-for-like (different tasks or trial counts) it prints a warning.
+
+**What to look for.** `regressions` (tasks that got worse), `improvements`, the two p-values, and the config-differences list.
+
+**What you learn.** *Real run (smoke vs ablation):* delta −40.3%; z-test p = 0.031 ("significant") but McNemar p = 0.248 ("not enough tasks changed"). When the tests disagree, trust the paired one and gather more tasks or trials. You also don't need a p-value to believe the ablation result (the skills were removed, so those tasks *had* to fail); the tests matter for real changes such as a new prompt or model.
+
+#### Step 6 · `evalh run capability --k 3`: hard tasks, repeated, LLM-judged
+**What it does.** Runs 11 harder tasks 3 times each (33 trials): answers grounded in the knowledge base, a question the knowledge base cannot answer, and three **fault-injection** tasks (the knowledge base errors once, is permanently down, or returns nothing).
+
+**How it works.** Same runner, but the grader stack adds **trajectory checks** (`tool_called`, `trajectory_match`), `citation_grounding`, `error_recovery`, and two **LLM judges** (`groundedness`: are the claims supported by the tool results? `correctness`: does it meet the written criteria?). Judges use the *judge* model, which is skipped if `JUDGE_MODEL` is unset and flagged `self-judged` when it equals the agent model. Fault tasks attach a fault profile (`evals/faults/*.yaml`) that replaces the knowledge-base result with an error or an empty answer.
+
+**What to look for.** `pass@k` vs `pass^k`; `flaky` vs `systematic`; `by grader` (which layer fails?); `by tag`; and for each failed trial the judge's rationale.
+
+**What you learn.**
+- *pass@3 91% vs pass^3 58%:* the agent is **capable** (10 of 11 tasks pass at least once) but not **consistent** (only 6 pass every time).
+- *Real run:* every code grader was at 100% and **all 10 failures came from the two LLM judges**, so the result is mostly a statement about the judge. Reading the transcripts: some verdicts were wrong (the same "the knowledge base has nothing on this" answer was passed once and failed twice; a correct "coverage = true negative rate" definition was marked a factual error), one was a real problem (after a knowledge-base outage the agent stated a wrong formula), and one exposed a genuine agent weakness (it does not retry after a transient 503).
+- Lesson: **never trust an LLM judge you haven't read**, especially a self-judge. Read failed trials, then `regrade` with a better rubric or a stronger judge, and calibrate (step 11).
+- Lesson: injecting a fault is not the same as testing it. A "flaky then recovers" task only tests recovery if the agent actually calls the tool a second time.
+
+#### Step 7 · `evalh traffic --n 20 --fault-rate 0.4`: simulated production
+**What it does.** Creates your own "production" traffic: 20 simulated users talk to the agent, and about 40% of sessions get a tool fault. Output: `{sessions, thumbs_down, faults_injected, file}`.
+
+**How it works.**
+1. A generator combines dimensions (intent × persona × difficulty); the synthesizer model writes one realistic message per combination (offline, a template does).
+2. Each session is assigned a fault with probability `fault-rate` (`flaky_kb`, `kb_down` or `empty_kb`), then run through the agent.
+3. A stand-in for user feedback: a session gets 👎 only if a tool returned an **error** or the run crashed.
+4. Each session is saved to `data/traffic/traffic-<timestamp>.jsonl` and traced to LangSmith with `metadata.source=traffic` when enabled.
+
+**What to look for / what you learn.** *Real run:* 20 sessions, 8 assigned a fault, but only **3 fired**: a fault matters only if the agent calls the tool it targets, and in 5 sessions it never searched the knowledge base. Only 1 session got 👎. The empty-knowledge-base sessions got 👍 because "no results" is not an error, so the simulated feedback **cannot tell good answers from bad ones**. `faults_injected` in the printed output is computed as `fault_rate × n` (not counted), so use the file for the real numbers. Simulated users also include off-topic and system-prompt requests, which is useful: they are the tasks where the right answer is a refusal.
+
+#### Step 8 · `evalh import-traces --adapter jsonl --limit 20`: logs → candidate tasks
+**What it does.** Converts logged sessions into **candidate tasks** waiting for review. Output: `fetched`, `queued`, `duplicates_dropped`, `leaks_dropped`, and the ids.
+
+**How it works.**
+1. The `jsonl` adapter reads `data/traffic/*.jsonl` newest file first up to `--limit` (the `langsmith` adapter, the default when LangSmith is on, reads the tracing project instead).
+2. Personal data is scrubbed (emails, API keys, card and phone numbers).
+3. Each session becomes a task: the user's first message is the input, and the **whole logged conversation rides along in `metadata.transcript`**, with the 👍/👎. `expected` stays empty because nobody has said yet what *should* have happened.
+4. Quality gates: near-duplicate removal (against your existing datasets and the queue) and a leak check; survivors are written to `evals/candidates/<id>.yaml`.
+
+**What you learn.** This is the **online → offline loop**: real behaviour becomes test material. Nothing is graded and nothing enters a dataset until you accept it. *Real run:* 19 queued, 1 dropped (it was identical to an existing task). The duplicate filter only catches near-identical wording, so three differently worded "rubric" questions all survive: curate rather than accept everything.
+
+#### Step 9 · `evalh candidates`: the review queue
+**What it does.** Lists the queued candidates (id, source, first 90 characters of the input). `--accept ID` (repeatable) or `--accept all` moves them into `evals/datasets/<group>/<group>.yaml` (`--group traces` is what step 10 reads).
+
+**How it works.** One YAML file per candidate in `evals/candidates/`. Accepting appends the task to the group file (imported traces keep their transcript) and removes it from the queue. Rejecting is available in the UI (Data sources) and the API.
+
+**What to look for.** The table hides the signals that matter (👎, tool errors, empty results, which skill loaded); the UI shows them as badges. Pick **one of each distinct behaviour**, prefer the 👎 and failure sessions, and always include the refusal cases (system-prompt and off-topic requests).
+
+**What you learn.** Curation is part of evaluation engineering: a dataset is a deliberate sample of behaviours, not a dump. To turn a candidate into a regression test, edit it and fill `expected` (what the agent should have done) before accepting.
+
+#### Step 10 · `evalh run traces`: grade logged traffic, nothing re-run
+**What it does.** Grades the accepted sessions exactly as they were logged.
+
+**How it works.** The `traces` suite uses `target: trace`: the stored transcript is replayed as the result, so the agent is never called. Because no expectations exist, it uses graders that need none: `step_efficiency` (loops, step count), `tool_errors`, `error_recovery`, `budget`, and the `groundedness` and `conciseness` judges. `fail_fast` is off so every grader reports.
+
+**What you learn.** *Reference-free evaluation*: you can monitor live behaviour without gold answers. Cost is judge calls only. It shows what the traffic simulator injected (tool errors) and lets you spot patterns before writing any expectations.
+
+#### Step 11 · `evalh regrade` and `evalh calibrate` (optional but important)
+- **`evalh regrade <id>`** re-runs only the graders on stored transcripts. Change a rubric or the judge model, regrade, and compare: this is how you fix a noisy judge without paying for the agent again (the answer to "criteria drift": your standards change as you read outputs).
+- **`evalh calibrate`** (after labelling trials 👍/👎 in the UI **Annotate** page) reports each grader's **coverage**, **false failure rate**, **alignment** and **kappa** against your labels. It tells you which graders to trust.
+
+### 0.3 Reading the numbers (plain language)
+
+| Term | Think of it as | Watch out for |
+|---|---|---|
+| **trial** | one attempt at one task | k trials per task = k attempts at the *same* question |
+| **trial pass rate** | share of attempts that passed every grader | trials of one task are not independent samples |
+| **95% CI** | "my best guess, plus how wrong I might be" | few *distinct tasks* → wide; more repeats of the same task barely narrow it |
+| **pass@k** | "did at least one of the k tries succeed?" (can it do it at all?) | generous |
+| **pass^k** | "did all k tries succeed?" (can I count on it?) | strict; the gap to pass@k is flakiness |
+| **flaky** | sometimes passes, sometimes fails on the same task | with LLM judges, this can be *judge* noise, not agent noise |
+| **systematic** | failed every try | a bug in the prompt, tool, task or grader |
+| **skipped** | a grader had nothing to check (or a cheaper layer already failed) | a 100% grader with many skipped only covers the passing trials |
+| **self-judged** | judge model = agent model | models favour their own style; use a different, stronger judge |
+| **regression / improvement** | task that got worse / better between two runs | only meaningful when the runs are like-for-like |
+
+### 0.4 What this path teaches (the short version)
+
+1. **Grade the process, not only the answer.** Right tools, right skill, no loops; the text can be fine while the behaviour is wrong (and vice versa).
+2. **A test needs a test.** Ablations show your evaluation can actually detect a change.
+3. **Repeat and separate flaky from systematic**, but know *what* varies: the agent, or the judge.
+4. **Read transcripts before trusting a score.** Most of the 30% "failures" of a first real capability run were judge opinions, some wrong.
+5. **Fair comparisons**: same suite, same k, same model; prefer paired tests; check the config differences.
+6. **Traces are the best test source**, but they carry no ground truth: you must add expectations, curate, and watch for sampling bias (users rarely click 👎).
+7. **Cost control is part of the design**: cheap code graders first, replay/regrade instead of re-running, small runs before big ones.
+
+### 0.5 Keep your own log
+
+Copy this table into your notes (or a file) and fill one row per run so you can see what you learned over time:
+
+| Date | Command | Experiment id | Model (agent / judge) | Result (pass, pass@k / pass^k) | What I noticed | What I'll try next |
+|---|---|---|---|---|---|---|
+| | `evalh run smoke` | | | | | |
+| | | | | | | |
+
+Questions worth writing down after every run: *Did a code grader or a judge decide the failures? Did I read at least three failed transcripts? Is this comparison like-for-like? What would change my mind?*
+
+With real models (OpenRouter), after filling `.env` (section 1): repeat steps 1, 2 and 6 and compare your numbers with the offline run and with the real-run notes above.
 
 ---
 
