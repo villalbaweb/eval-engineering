@@ -15,7 +15,7 @@ How to run every feature of the lab, step by step. Each section says **what it i
 - [10. Files, data and cleanup](#10-files-data-and-cleanup)
 - [11. Troubleshooting](#11-troubleshooting)
 
-Conventions: `$` commands run from `backend/` unless stated. `uv run evalh …` is the CLI. The UI is at <http://localhost:5173> (dev) or <http://localhost:8080> (Docker, nginx).
+Conventions: `$` commands run from `backend/` unless stated. `uv run evalh …` is the CLI. From the repo root use `uv run --project backend evalh …` (plain `uv run evalh` fails with "program not found" there: the Python project is in `backend/`), or activate the venv once per terminal (PowerShell: `backend\.venv\Scripts\Activate.ps1`; Git Bash: `source backend/.venv/Scripts/activate`), after which plain `evalh …` works anywhere. The UI is at <http://localhost:5173> (dev) or <http://localhost:8080> (Docker, nginx).
 
 ---
 
