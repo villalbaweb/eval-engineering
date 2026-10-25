@@ -52,9 +52,26 @@ def compare(a_id: str, b_id: str, *, delta_threshold: float = 0.01) -> dict[str,
         "per_task": sorted(rows, key=lambda r: r["delta"]),  # regressions first
         "only_in_a": sorted(set(ca) - set(cb)), "only_in_b": sorted(set(cb) - set(ca)),
         "cost_latency": {"a": cl(ea), "b": cl(eb)},
-        "config_diff": _config_diff(ea.snapshot, eb.snapshot),
-        "config_changes": config_changes(ea.snapshot, eb.snapshot),
+        "config_diff": _config_diff(_profiled(ea.snapshot), _profiled(eb.snapshot)),
+        "config_changes": config_changes(_profiled(ea.snapshot), _profiled(eb.snapshot)),
+        "warnings": _warnings(ea, eb),
     }
+
+
+def _profiled(snapshot: dict) -> dict:
+    """Experiments from before profiles existed ran the built-in copilot agent."""
+    return snapshot if "profile" in snapshot else {**snapshot, "profile": "copilot"}
+
+
+def _warnings(ea: Any, eb: Any) -> list[str]:
+    pa, pb = _profiled(ea.snapshot)["profile"], _profiled(eb.snapshot)["profile"]
+    out = []
+    if pa != pb:
+        out.append(f"different agents: A ran profile '{pa}', B ran profile '{pb}'. Task results are not comparable "
+                   "unless both agents were given the same tasks on purpose.")
+    if ea.suite != eb.suite:
+        out.append(f"different suites: '{ea.suite}' vs '{eb.suite}' (different graders/tasks)")
+    return out
 
 
 def _config_diff(a: dict, b: dict) -> dict[str, Any]:

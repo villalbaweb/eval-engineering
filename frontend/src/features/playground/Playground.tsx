@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
+import { can, findVariant, useActiveProfile } from "@/entities/profile";
 import { api } from "@/shared/api";
 import { streamSSE } from "@/shared/sse";
 import { Badge, Card, ErrorBox, PageHead } from "@/shared/ui";
@@ -8,10 +9,15 @@ interface Msg { role: "user" | "assistant"; content: string; run_id?: string; sk
 interface TraceItem { kind: "skill" | "tool" | "err" | "info"; text: string; sub?: string }
 
 export function Playground() {
-  const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
+  const { profile, catalog } = useActiveProfile();
   const faults = useQuery({ queryKey: ["faults"], queryFn: api.faults });
   const FAULTS = ["", ...(faults.data ?? [])];
-  const [agent, setAgent] = useState("copilot-baseline");
+  const [picked, setAgent] = useState<string | null>(null);
+  // the profile's variants (older servers: the agent configs)
+  const variants = profile?.variants.map((v) => v.name) ?? catalog?.agents.map((a) => a.name) ?? ["copilot-baseline"];
+  const agent = picked ?? profile?.default_variant ?? variants[0] ?? "copilot-baseline";
+  const canChat = can(profile, agent, "chat");
+  const canFault = can(profile, agent, "fault_injection");
   const [fault, setFault] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [trace, setTrace] = useState<TraceItem[]>([]);
@@ -30,7 +36,8 @@ export function Playground() {
     try {
       await streamSSE("/api/chat/stream", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })), agent, fault_profile: fault || null }),
+        body: JSON.stringify({ messages: history.map(({ role, content }) => ({ role, content })), variant: agent,
+          fault_profile: canFault ? fault || null : null }),
       }, ({ event, data }) => {
         if (event === "start") setModel(data.model);
         else if (event === "skill_loaded") setTrace((t) => [...t, { kind: "skill", text: `skill loaded: ${data.skill}` }]);
@@ -55,13 +62,16 @@ export function Playground() {
     <>
       <PageHead title="Playground" sub="Chat with the Eval Copilot and watch skills load and tools fire. Every chat is traced to LangSmith (source=playground); turn chats into tasks via Data sources → Import (source: playground)."
         actions={<>
-          <label>agent
+          <label>variant
             <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-              {(catalog.data?.agents ?? [{ name: agent }]).map((a) => <option key={a.name}>{a.name}</option>)}
+              {variants.map((a) => <option key={a}>{a}</option>)}
             </select></label>
-          <label>inject fault
-            <select value={fault} onChange={(e) => setFault(e.target.value)}>{FAULTS.map((f) => <option key={f} value={f}>{f || "none"}</option>)}</select></label>
+          {canFault && <label>inject fault
+            <select value={fault} onChange={(e) => setFault(e.target.value)}>{FAULTS.map((f) => <option key={f} value={f}>{f || "none"}</option>)}</select></label>}
         </>} />
+      {!canChat && <div className="notice">Variant <strong>{agent}</strong> cannot chat
+        ({findVariant(profile, agent)?.target ?? "unknown target"}: only its logged runs can be evaluated). Import its traces in
+        Data sources and grade them with a trace suite instead.</div>}
       <ErrorBox error={error} />
       <div className="chat">
         <Card>
@@ -84,7 +94,7 @@ export function Playground() {
           </div>
           <form className="row" style={{ marginTop: 12, flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); void send(); }}>
             <input style={{ flex: 1 }} value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask the Eval Copilot…" aria-label="message" />
-            <button className="primary" disabled={busy || !input.trim()}>Send</button>
+            <button className="primary" disabled={busy || !input.trim() || !canChat}>Send</button>
             <button type="button" onClick={() => { setMsgs([]); setTrace([]); }}>Clear</button>
           </form>
         </Card>

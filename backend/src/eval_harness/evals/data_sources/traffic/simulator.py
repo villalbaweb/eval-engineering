@@ -38,6 +38,12 @@ DEFAULT_DIMENSIONS = {
 FAULTS = ["flaky_kb", "kb_down", "empty_kb"]
 
 
+def _profile_meta(variant: str) -> dict[str, str]:
+    from eval_harness.profiles import active_profile_name
+
+    return {"profile": active_profile_name(), "variant": variant}
+
+
 def _run_one(agent_name: str, text: str, fault: str | None, run_id: str) -> TraceRecord:
     cfg = load_agent_config(agent_name)
     ctx = RunContext(fault_profile=fault)
@@ -48,7 +54,8 @@ def _run_one(agent_name: str, text: str, fault: str | None, run_id: str) -> Trac
     try:
         lc, lat = agent.invoke(msgs, config={"run_id": run_id, "run_name": "traffic-session",
                                               "tags": ["traffic"],
-                                              "metadata": {"source": "traffic", "fault": fault or "none"}})
+                                              "metadata": {"source": "traffic", "fault": fault or "none",
+                                                           **_profile_meta(agent_name)}})
         t = build_transcript(lc, ctx, model_slug=agent.model_spec.slug, latency_s=lat,
                              extra_meta={"langsmith_run_id": run_id, "fault": fault})
     except Exception as e:  # noqa: BLE001
@@ -60,8 +67,24 @@ def _run_one(agent_name: str, text: str, fault: str | None, run_id: str) -> Trac
                        transcript=t, status=status, error=error, feedback={"thumbs": thumbs})
 
 
-async def simulate_traffic(n: int = 10, *, agent: str = "copilot-baseline", fault_rate: float = 0.0,
+def traffic_variant(ref: str | None) -> str:
+    """The in-process agent to simulate users against; refuses variants without ``traffic_sim``."""
+    from eval_harness.agent.config import AGENT_TARGETS
+    from eval_harness.evals.runner.service import CapabilityError
+    from eval_harness.evals.targets.base import target_capabilities
+    from eval_harness.profiles import resolve_variant
+
+    _, v = resolve_variant(ref)
+    caps = target_capabilities(v.target)
+    if (caps is not None and "traffic_sim" not in caps) or v.target not in AGENT_TARGETS:
+        raise CapabilityError(f"variant '{v.name}' (target {v.target}) cannot receive simulated traffic here")
+    return v.name
+
+
+async def simulate_traffic(n: int = 10, *, agent: str | None = None, fault_rate: float = 0.0,
                            seed: int = 0, concurrency: int = 4) -> dict[str, Any]:
+    """``agent``: variant (or legacy agent name) of the active profile; default: the profile's default."""
+    agent = traffic_variant(agent)
     cfg = SynthesisConfig(name="traffic", generator="dimensional", count=n, seed=seed, dimensions=DEFAULT_DIMENSIONS)
     tasks = generator_registry.get("dimensional")(cfg).generate()
     rng = random.Random(seed)

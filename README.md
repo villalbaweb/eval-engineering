@@ -41,6 +41,8 @@ Production-style (nginx, no reload): `docker compose -f docker-compose.yml up --
 | LangSmith | `.../integrations/langsmith/` | `RunnerHook` |
 | model providers | `.../llm/providers/` | `LLM_PROVIDER` |
 | tasks, suites, rubrics, fault profiles | `evals/{datasets,suites,rubrics,faults}/` | *(data only)* |
+| **another agent** (its inventory, trace conventions, variants, datasets, suites) | `evals/profiles/<name>/` (start from `demo-external/`) | *(data only)*; `evalh profiles` |
+| how a transcript is read (skills, tool errors, citations) | `.../profiles/conventions.py` (+ `profiles/hooks/`) | `@register_conventions_hook` |
 | a UI page | `frontend/src/features/<name>/` | `app/routes.tsx` |
 
 ## Adding things
@@ -73,8 +75,11 @@ uv run evalh scaffold grader my_check       # grader + unit test      (also: too
 
 Re-grading without re-running the agent: `evalh regrade <experiment-id>` (the answer to criteria drift).
 
+## Any agent: profiles and variants
+The toy agent is just the first **profile** (`copilot`). A profile is one agent under test: its tools and skills (metadata), its **conventions** (how its traces show skill loads, tool failures, citations), where its traces live, and its own datasets and suites. A **variant** is one way to run or read it (an improvement candidate, an ablation, `staging`, read-only `prod-traces`); what it can do (chat, re-run, fault injection...) comes from its target, and the UI and runner refuse what it cannot do. Try the bundled second agent: `evalh --profile demo-external run traces`, or pick it in the UI's **agent profile** selector. See `.agents/RUNBOOK.md` §4.18.
+
 ## Testing
-`cd backend && uv run pytest` (92 tests, offline, ~15 s) · `cd frontend && npm test && npm run build` · Docker: `docker compose --profile test run --rm tests`.
+`cd backend && uv run pytest` (136 tests, offline, ~40 s, including the golden no-regression gate in `tests/golden/`) · `cd frontend && npm test && npm run build` · Docker: `docker compose --profile test run --rm tests`.
 
 ## Design notes
 - **Everything is a transcript.** Targets return a normalized `Transcript` (OpenAI-format messages + tool-call records + skills loaded); graders never touch LangChain types.

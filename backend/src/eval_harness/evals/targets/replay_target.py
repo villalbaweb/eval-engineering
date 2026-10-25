@@ -20,6 +20,8 @@ from eval_harness.storage.repositories import trials as trial_repo
 
 @register_target("replay")
 class ReplayTarget(Target):
+    capabilities = frozenset()  # grades stored transcripts; runs nothing
+
     def __init__(self, source_experiment_id: str):
         self.source = source_experiment_id
         self._by_key = {(t.task_id, t.index): t for t in trial_repo.for_experiment(source_experiment_id)}
@@ -46,6 +48,8 @@ class ReplayTarget(Target):
 class TraceTarget(Target):
     """Grade logged traces as they are; nothing is re-run."""
 
+    capabilities = frozenset()
+
     def snapshot(self) -> dict[str, Any]:
         return {"type": self.type}
 
@@ -54,4 +58,19 @@ class TraceTarget(Target):
         if not raw:
             return Transcript(), Outcome(status="error", error="task has no logged transcript")
         t = Transcript.model_validate(raw)
+        if not t.tool_calls and any(m.get("tool_calls") for m in t.messages):
+            # messages only (e.g. a hand-written dataset of another agent): derive tool calls, errors and
+            # skills with the agent profile's conventions, exactly like the trace importer does
+            from eval_harness.evals.data_sources.traces.base import transcript_from_messages
+            from eval_harness.profiles import active_profile
+
+            derived = transcript_from_messages(t.messages, conventions=active_profile().conventions, **t.meta)
+            t = t.model_copy(update={"tool_calls": derived.tool_calls, "skills_loaded": derived.skills_loaded})
         return t, Outcome(final_answer=t.final_answer, status="ok")
+
+
+@register_target("trace_source")
+class TraceSourceTarget(TraceTarget):
+    """Target of a read-only variant (e.g. ``prod-traces``): the agent cannot be called from the lab,
+    only its logged runs are graded. Supports no capabilities, so live/multiturn runs, the Playground
+    and traffic simulation are refused with a reason."""

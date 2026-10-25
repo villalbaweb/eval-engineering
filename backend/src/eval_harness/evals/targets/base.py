@@ -25,8 +25,15 @@ class TrialInfo:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+CAPABILITIES = ("chat", "rerun", "fault_injection", "record_replay", "model_override", "traffic_sim")
+
+
 class Target:
     type: ClassVar[str] = ""
+    # what a variant using this target supports (the UI and the runner gate features on it):
+    # chat (Playground, multiturn mode), rerun (live mode), fault_injection, record_replay (tool modes),
+    # model_override, traffic_sim. None = undeclared (targets written before profiles): never gated.
+    capabilities: ClassVar[frozenset[str] | None] = None
 
     async def run(self, task: Task, run: RunSettings, info: TrialInfo) -> tuple[Transcript, Outcome]:
         raise NotImplementedError
@@ -43,6 +50,12 @@ class Target:
 target_registry: Registry[type[Target]] = Registry(
     "target", package="eval_harness.evals.targets", entry_point_group="eval_harness.targets"
 )
+
+
+def target_capabilities(type_: str) -> frozenset[str] | None:
+    """Capabilities of a target type; None when the target does not declare them (not gated).
+    Unknown target names support nothing."""
+    return target_registry.get(type_).capabilities if type_ in target_registry else frozenset()
 
 
 def register_target(type_: str):

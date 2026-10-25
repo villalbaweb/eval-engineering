@@ -1,6 +1,6 @@
 # Validation Target Adapter (high-level design)
 
-> **Status:** proposed, not started. No code exists for this yet.
+> **Status:** proposed, not started. Prerequisite done: agent profiles ([AGENT_PROFILES_PLAN.md](AGENT_PROFILES_PLAN.md)) - mode A works today with a profile folder; mode B still needs the `http_agent` target.
 > **Date:** 2026-10-24
 > **One line:** a small plug-in that lets the lab's evaluation engine (graders, metrics, comparison, calibration) validate **your real production agent**, instead of only the toy agent it ships with.
 
@@ -21,6 +21,16 @@ It does **not** make the toy's datasets, thresholds or scores meaningful for the
 ---
 
 ## 2. Where it plugs in (what already exists)
+
+> **Update (agent profiles, see [AGENT_PROFILES_PLAN.md](AGENT_PROFILES_PLAN.md)):** the lab now has *profiles*. Evaluating the real agent = three pieces, of which only the target is code:
+>
+> | Piece | Answers | Kind | Where |
+> |---|---|---|---|
+> | **Profile** | *what* the agent is and *how to read* its data: inventory (tools/skills), conventions (skill loads, tool errors, citations), where its traces live | data (YAML) | `evals/profiles/<agent>/profile.yaml` |
+> | **Trace adapter** | *how to fetch and parse* a trace format (LangSmith, JSONL exist; OpenTelemetry/custom = new adapter) | code, shared | `evals/data_sources/traces/` |
+> | **Target** | *how to run* a variant (this document's mode B: `http_agent`); mode A needs no new target (`trace_source` exists) | code, shared | `evals/targets/` |
+>
+> Mode A (trace-based) now needs **no code** if the traces are LangSmith runs or JSONL: write the profile (copy `evals/profiles/demo-external/`) with a `trace_source` variant. Live and imported transcripts are read with the same profile conventions, so they are graded identically.
 
 The engine is deliberately independent of how the agent is run. The seam is the `Target` interface in `backend/src/eval_harness/evals/targets/base.py`:
 
@@ -83,7 +93,8 @@ Target output is a `Transcript` (`evals/domain/transcript.py`) plus an `Outcome`
 |---|---|---|
 | `messages` (OpenAI-format; final assistant message) | all graders | adapter is unusable; this is the minimum |
 | `tool_calls` (name, args, result, error, latency) | `tool_called`, `tool_not_called`, `tool_errors`, `trajectory_match`, `step_efficiency`, `error_recovery`, `citation_grounding` (tool results) | those graders skip |
-| `skills_loaded` | `skill_selection` | skips. Derived by `transcript_from_messages` from `load_skill*` tool names; **adapter must map the real agent's own skill/tool naming** |
+| `skills_loaded` | `skill_selection` | skips. Derived by `transcript_from_messages` with the **profile's `conventions.skills`** rules (e.g. `{tool: use_capability, arg: name}`); no adapter code needed for naming |
+| tool `error` flags | `tool_errors`, `error_recovery` | derived with the **profile's `conventions.tool_error`** rules (`result_prefix`, `result_regex`, `result_json_key`, `message_status`); without a matching rule real failures look like successes |
 | `usage` (tokens, cost), `latency_s` | `budget`, cost/latency metrics | metrics show n/a |
 | `meta.guardrail_events` | `guardrail_tripwire` | that grader reports no events |
 | `model_slug` | experiment snapshot, comparisons | shown as unknown |
@@ -92,29 +103,40 @@ Not applicable to a remote agent (they act inside the toy's process): **tool rec
 
 ---
 
-## 6. Configuration sketch
+## 6. Configuration sketch (with profiles)
 
-Keep the contract **in data**, like the rest of the lab (indicative only; the exact schema is decided during design):
+Everything about the real agent is **data in its profile folder**; the only new code is an `http_agent` target that reads its variant's `config:` (indicative):
 
 ```yaml
-# evals/targets/real-agent.yaml
-name: real-agent
-mode: live                       # live | trace
-base_url: ${REAL_AGENT_URL}      # staging, never production by default
-auth: { header: Authorization, value: "Bearer ${REAL_AGENT_TOKEN}" }
-request:                         # how a task becomes a request
-  body: { messages: "{{ task.input.messages }}", thread_id: "{{ trial.id }}" }
-response:                        # where to find things (JSONPath-style)
-  final_answer: $.output
-  messages: $.messages           # optional: enables trajectory graders
-  trace_id: $.trace_id           # optional: fetch trajectory from the trace store
-  usage: $.usage                 # optional
-skills:                          # how to detect "skill loaded" in this agent
-  tool_name_pattern: "^load_skill_(.+)$"
-limits: { timeout_s: 60, concurrency: 2, requests_per_minute: 30 }
-environment: staging             # recorded in the experiment snapshot
+# evals/profiles/support-agent/profile.yaml          (schema: RUNBOOK 5.6)
+description: Production support agent
+default_variant: staging
+inventory: { tools: [{ name: search_orders }], skills: [{ name: refunds }] }
+conventions:
+  skills: [{ tool: use_capability, arg: name }]       # how a skill load looks in its transcripts
+  tool_error: [{ result_json_key: error }, { message_status: error }]
+  citations: null
+traces: { adapter: langsmith, project: prod-support, filters: { source: prod } }
+defaults: { trace_suite: traces, trace_group: logged, langsmith_prefix: support-agent }
+
+# evals/profiles/support-agent/variants/prod-traces.yaml   (mode A: read-only, exists today)
+target: trace_source
+
+# evals/profiles/support-agent/variants/staging.yaml       (mode B: needs the http_agent target)
+target: http_agent
+config:
+  base_url: ${REAL_AGENT_URL}      # staging, never production by default
+  auth: { header: Authorization, value: "Bearer ${REAL_AGENT_TOKEN}" }
+  request: { body: { messages: "{{ task.input.messages }}", thread_id: "{{ trial.id }}" } }
+  response:                        # where to find things (JSONPath-style)
+    final_answer: $.output
+    messages: $.messages           # optional: enables trajectory graders (read with the profile conventions)
+    trace_id: $.trace_id           # optional: fetch trajectory from the trace store
+    usage: $.usage
+  limits: { timeout_s: 60, concurrency: 2, requests_per_minute: 30 }
+  environment: staging             # recorded in the experiment snapshot
 ```
-A suite would then use `target: real_agent` (plus options). A code-based adapter handles anything the YAML contract cannot express (custom auth, streaming, multi-step handshakes).
+The `http_agent` target declares its `capabilities` (at least `rerun`; `chat` if conversational) so the UI and runner offer exactly what it can do; suites pick it with `variant: staging` + `mode: live`, or grade logs with `mode: trace`. A code-based target handles anything the YAML cannot express (custom auth, streaming, multi-step handshakes); `evalh scaffold target http_agent` gives the skeleton.
 
 ---
 
@@ -162,7 +184,7 @@ Reusable as-is: the engine, graders that only need messages/tool calls, metrics,
 
 1. **How is the real agent invoked?** HTTP endpoint (shape of request/response, auth, streaming?), SDK/function call, or queue. One sample request and response.
 2. **Does the response carry the trajectory?** If not, is there a trace/run id to look up, and in which system (LangSmith project, OpenTelemetry, custom store)?
-3. **Trace format and sample:** one exported trace; how skills and tool calls are named; where token usage and latency live.
+3. **Trace format and sample:** one exported trace; how skills and tool calls are named; where token usage and latency live. Specifically, for the profile's conventions: **how a skill load appears** (tool name? argument?), **how a tool failure appears** (prefix, JSON field, status, HTTP code), and whether answers cite sources and in what format.
 4. **Environments:** is there a staging/sandbox? Are tools mockable or side-effect free there?
 5. **State:** is the agent stateless per request, or does it need a thread/session id and prior history?
 6. **Identity and tenancy:** which user/tenant should evals run as? Any feature flags to pin?

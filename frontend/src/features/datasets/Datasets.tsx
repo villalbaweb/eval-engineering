@@ -76,10 +76,11 @@ export function Datasets() {
           {save.data && !dirty && <Badge kind="good">saved · {save.data.tasks} tasks</Badge>}
           <button className="primary" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>Save</button></div>}>
           <ErrorBox error={save.error} />
+          {save.data?.warnings?.length ? <div className="notice">Saved. Names not in the {catalog.data?.profile?.name ?? "agent"} inventory: {save.data.warnings.join("; ")}</div> : null}
           {path && group && !isNew && (
             <div className="row" style={{ marginBottom: 8 }}>
               <span className="small">group <strong>{group}</strong> · {usedBy.length ? <>used by {usedBy.map((s) => <Link key={s} to={`/suites?name=${s}`} style={{ marginRight: 4 }}>{s}</Link>)}</> : <span className="muted">in no suite</span>}</span>
-              <Link to={runGroupHref(group, usedBy[0] ?? suggestedSuite(hasTranscripts))}>Run this group…</Link>
+              <Link to={runGroupHref(group, usedBy[0] ?? suggestedSuite(hasTranscripts, catalog.data?.profile?.defaults))}>Run this group…</Link>
               {ls.data?.enabled && <button disabled={push.isPending} onClick={() => push.mutate(group)}>Push to LangSmith</button>}
             </div>)}
           <ErrorBox error={push.error} />{push.data && <pre>{JSON.stringify(push.data, null, 2)}</pre>}

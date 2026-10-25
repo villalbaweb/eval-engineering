@@ -55,7 +55,7 @@ export function ExperimentDetail() {
 
   return (
     <>
-      <PageHead title={e.name} sub={`${e.suite} · data ${(e.snapshot.suite?.datasets ?? []).join(", ")} · target ${e.target} · ${agentModel?.provider}:${agentModel?.model} · git ${e.snapshot.git_sha ?? "–"}`}
+      <PageHead title={e.name} sub={`${e.suite} · data ${(e.snapshot.suite?.datasets ?? []).join(", ")} · agent ${e.snapshot.profile ?? "copilot"}${e.snapshot.variant ? `:${e.snapshot.variant}` : ""} · ${e.snapshot.mode ?? "target"} ${e.snapshot.mode ? "" : e.target} · ${agentModel?.provider}:${agentModel?.model} · git ${e.snapshot.git_sha ?? "–"}`}
         actions={<>
           <StatusBadge status={e.status} />
           {e.langsmith_url && <a href={e.langsmith_url} target="_blank" rel="noreferrer">LangSmith ↗</a>}

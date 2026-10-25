@@ -28,10 +28,13 @@ def get_judge(model: str | None = None) -> BaseChatModel:
 
 
 def load_rubric(name: str) -> str:
-    p = get_settings().rubrics_dir / f"{name}.md"
-    if not p.exists():
-        raise FileNotFoundError(f"rubric '{name}' not found in {get_settings().rubrics_dir}")
-    return p.read_text(encoding="utf-8")
+    """The active profile's rubric, else the shared one (``evals/rubrics``) of the same name."""
+    s = get_settings()
+    for d in dict.fromkeys((s.rubrics_dir, s.shared_rubrics_dir)):
+        p = d / f"{name}.md"
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    raise FileNotFoundError(f"rubric '{name}' not found in {s.rubrics_dir}")
 
 
 class JudgeGrader(Grader):

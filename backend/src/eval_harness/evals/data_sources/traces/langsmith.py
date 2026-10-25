@@ -11,18 +11,22 @@ from eval_harness.evals.data_sources.traces.base import (
     register_adapter,
     transcript_from_messages,
 )
+from eval_harness.evals.domain.profile import Conventions
 
 
-def run_to_record(run: Any, feedback: dict[str, Any] | None = None) -> TraceRecord | None:
-    """A LangSmith root run of the agent -> TraceRecord (None if it has no messages)."""
+def run_to_record(run: Any, feedback: dict[str, Any] | None = None,
+                  conventions: Conventions | None = None) -> TraceRecord | None:
+    """A LangSmith root run of the agent -> TraceRecord (None if it has no messages). The transcript is
+    read with the agent profile's ``conventions`` (skills, tool errors)."""
     inputs, outputs = run.inputs or {}, run.outputs or {}
-    out_msgs = normalize_messages(outputs.get("messages") or [])
+    statuses: dict[str, str] = {}
+    out_msgs = normalize_messages(outputs.get("messages") or [], statuses)
     in_msgs = normalize_messages(inputs.get("messages") or [])
     if not out_msgs and not in_msgs:
         return None
     msgs = out_msgs or in_msgs  # agent output state contains the whole conversation
     meta = (getattr(run, "extra", None) or {}).get("metadata", {}) or {}
-    t = transcript_from_messages(msgs, langsmith_run_id=str(run.id))
+    t = transcript_from_messages(msgs, conventions=conventions, statuses=statuses, langsmith_run_id=str(run.id))
     started, ended = getattr(run, "start_time", None), getattr(run, "end_time", None)
     if started and ended:
         t.latency_s = round((ended - started).total_seconds(), 3)
@@ -39,7 +43,8 @@ class LangSmithAdapter(TraceAdapter):
     traffic and experiment trials all land there, distinguished by ``metadata.source``)."""
 
     def fetch(self, *, limit: int = 50, source: str | None = None, errors_only: bool = False,
-              path: str | None = None, project: str | None = None, hours: int = 72, **opts: Any) -> list[TraceRecord]:
+              path: str | None = None, project: str | None = None, hours: int = 72,
+              conventions: Conventions | None = None, **opts: Any) -> list[TraceRecord]:
         from eval_harness.integrations.langsmith.client import enabled, get_client
 
         if not enabled():
@@ -62,7 +67,7 @@ class LangSmithAdapter(TraceAdapter):
                         fb["thumbs"] = int(f.score or 0)
             except Exception:  # noqa: BLE001
                 pass
-            rec = run_to_record(r, fb)
+            rec = run_to_record(r, fb, conventions)
             if rec:
                 out.append(rec)
         return out

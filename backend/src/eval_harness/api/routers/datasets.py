@@ -68,7 +68,14 @@ def save_file(path: str, body: SaveBody) -> dict:
         raise HTTPException(422, f"invalid task file: {e}") from e
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(body.content, encoding="utf-8")
-    return {"saved": path, "tasks": len(parsed)}
+    return {"saved": path, "tasks": len(parsed), "warnings": _inventory_warnings(parsed)}
+
+
+def _inventory_warnings(tasks: list[Task]) -> list[str]:
+    from eval_harness.profiles import active_profile
+    from eval_harness.profiles.inventory import expectation_warnings
+
+    return expectation_warnings(tasks, active_profile())
 
 
 _NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -116,13 +123,17 @@ def save_suite(name: str, body: SaveBody) -> dict:
 
 @router.get("/faults")
 def faults() -> list[str]:
-    return [p.stem for p in sorted((get_settings().evals_dir / "faults").glob("*.yaml"))]
+    return [p.stem for p in sorted(get_settings().faults_dir.glob("*.yaml"))]
 
 
 @router.get("/rubrics")
 def rubrics() -> dict:
-    d = get_settings().rubrics_dir
-    return {p.stem: p.read_text(encoding="utf-8") for p in sorted(d.glob("*.md"))}
+    """Shared rubrics overlaid with the active profile's own (same name: the profile's wins)."""
+    s = get_settings()
+    out: dict[str, str] = {}
+    for d in dict.fromkeys((s.shared_rubrics_dir, s.rubrics_dir)):
+        out.update({p.stem: p.read_text(encoding="utf-8") for p in sorted(d.glob("*.md"))})
+    return dict(sorted(out.items()))
 
 
 _ = _read_tasks  # re-exported for tests

@@ -9,7 +9,12 @@ from eval_harness.evals.data_sources.traces.base import TraceAdapter, TraceRecor
 
 
 def traffic_dir() -> Path:
-    d = get_settings().data_dir / "traffic"
+    """Where simulated traffic of the active profile is written: ``data/traffic`` for the built-in
+    copilot (unchanged), ``data/traffic/<profile>`` for any other agent."""
+    from eval_harness.profiles import DEFAULT_PROFILE, active_profile_name
+
+    name = active_profile_name()
+    d = get_settings().data_dir / "traffic" / ("" if name == DEFAULT_PROFILE else name)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -1,10 +1,11 @@
+import { profileHeaders } from "./profile";
 import type {
-  Calibration, Candidate, Catalog, CompareResult, Experiment, TrialDetail, TrialRow,
+  Calibration, Candidate, Catalog, CompareResult, Experiment, Profiles, TrialDetail, TrialRow,
 } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json" }, ...init,
+    headers: { "Content-Type": "application/json", ...profileHeaders() }, ...init,
   });
   if (!res.ok) {
     let detail = res.statusText;
@@ -19,6 +20,8 @@ const post = <T,>(path: string, body?: unknown) => req<T>(path, { method: "POST"
 export interface LaunchBody {
   suite: string; name?: string; agent?: string; k?: number; concurrency?: number; tool_mode?: string;
   target?: string; max_tasks?: number; model?: string;
+  /** variant of the active profile (replaces agent) and how the suite evaluates (replaces target) */
+  variant?: string; mode?: string;
   /** run these dataset groups instead of the suite's own (the suite supplies graders/target/agent) */
   datasets?: string[];
 }
@@ -27,7 +30,10 @@ export interface ImportOpts { limit: number; adapter?: string; source?: string; 
 
 const put = <T,>(path: string, content: string) => req<T>(path, { method: "PUT", body: JSON.stringify({ content }) });
 
+type Warned = { warnings?: string[] };
+
 export const api = {
+  profiles: () => req<Profiles>("/profiles"),
   catalog: () => req<Catalog>("/catalog"),
   experiments: () => req<Experiment[]>("/experiments"),
   experiment: (id: string) => req<Experiment>(`/experiments/${id}`),
@@ -46,19 +52,19 @@ export const api = {
     req<Calibration>(`/calibration${experimentId ? `?experiment_id=${experimentId}` : ""}`),
   datasetFiles: () => req<string[]>("/datasets/files"),
   datasetFile: (p: string) => req<{ path: string; content: string }>(`/datasets/files/${p}`),
-  saveDatasetFile: (p: string, content: string) => put<{ saved: string; tasks: number }>(`/datasets/files/${p}`, content),
+  saveDatasetFile: (p: string, content: string) => put<{ saved: string; tasks: number } & Warned>(`/datasets/files/${p}`, content),
   suiteYaml: (name: string) => req<{ yaml: string; n_tasks: number }>(`/suites/${name}`),
   saveSuite: (name: string, content: string) =>
     put<{ saved: string; n_tasks: number; warning: string | null }>(`/suites/${name}`, content),
   faults: () => req<string[]>("/faults"),
   synthesisConfigs: () => req<string[]>("/synthesis/configs"),
   synthesize: (config: string, accept = false) => post<Record<string, any>>("/synthesis/run", { config, accept }),
-  simulateTraffic: (n: number, fault_rate: number, agent?: string) =>
-    post<Record<string, any>>("/traffic/simulate", { n, fault_rate, ...(agent ? { agent } : {}) }),
+  simulateTraffic: (n: number, fault_rate: number, variant?: string) =>
+    post<Record<string, any>>("/traffic/simulate", { n, fault_rate, ...(variant ? { variant } : {}) }),
   importTraces: (o: ImportOpts) => post<Record<string, any>>("/traces/import", o),
   candidates: () => req<Candidate[]>("/candidates"),
   candidateYaml: (id: string) => req<{ id: string; content: string }>(`/candidates/${id}/yaml`),
-  saveCandidateYaml: (id: string, content: string) => put<{ saved: string }>(`/candidates/${id}/yaml`, content),
+  saveCandidateYaml: (id: string, content: string) => put<{ saved: string } & Warned>(`/candidates/${id}/yaml`, content),
   langsmith: () => req<{ enabled: boolean; has_key: boolean; tracing: boolean; project: string }>("/integrations/langsmith"),
   pushDataset: (group: string) => post<Record<string, any>>(`/integrations/langsmith/datasets/${group}/push`),
   pullDataset: (name: string) => post<Record<string, any>>(`/integrations/langsmith/datasets/${name}/pull`),

@@ -1,4 +1,4 @@
-import type { Catalog } from "@/shared/types";
+import type { Catalog, ProfileView } from "@/shared/types";
 
 /** Suites whose `datasets:` select this group (by folder name or a path inside it). */
 export function suitesUsing(c: Catalog | undefined, group: string): string[] {
@@ -13,5 +13,7 @@ export function runGroupHref(group: string, suite?: string): string {
   return `/experiments?${q}`;
 }
 
-/** Imported traces carry their transcript: the free `traces` suite (trace target) grades them as logged. */
-export const suggestedSuite = (hasTranscripts: boolean) => (hasTranscripts ? "traces" : "smoke");
+/** Imported traces carry their transcript: the profile's trace suite grades them as logged; tasks with
+ * expectations go to its quick suite. Without profile info: the copilot's `traces` / `smoke`. */
+export const suggestedSuite = (hasTranscripts: boolean, defaults?: ProfileView["defaults"]) =>
+  hasTranscripts ? defaults?.trace_suite ?? "traces" : defaults?.quick_suite ?? "smoke";

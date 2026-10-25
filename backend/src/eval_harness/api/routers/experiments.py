@@ -25,6 +25,8 @@ class LaunchRequest(BaseModel):
     max_tasks: int | None = None
     graders: list[dict[str, Any]] | None = None
     datasets: list[str] | None = None  # run these dataset groups with the suite's graders/target
+    variant: str | None = None  # variant of the active profile (replaces `agent`)
+    mode: str | None = None  # live | multiturn | trace | replay (replaces `target`)
     model: str | None = None  # "provider:model" override for the agent (model sweeps)
 
 
@@ -43,18 +45,33 @@ async def launch(req: LaunchRequest) -> dict:
 def _apply_model(runner, spec: str) -> None:
     provider, _, name = spec.partition(":")
     cfg = getattr(runner.target, "cfg", None)
-    if cfg is None:
+    caps = type(runner.target).capabilities
+    if cfg is None or (caps is not None and "model_override" not in caps):
         raise ValueError("model override needs an agent-based target")
     cfg.model.provider, cfg.model.name = provider, name
     runner.exp.snapshot = runner._snapshot({"model_override": spec})
 
 
 @router.get("/experiments")
-def list_experiments(limit: int = 100) -> list[dict]:
-    return [e.model_dump(mode="json", exclude={"snapshot"}) | {
-        "model": e.snapshot.get("models", {}).get("agent", {}).get("model"),
-        "agent": e.snapshot.get("target", {}).get("agent_config", {}).get("name"),
-        "datasets": e.snapshot.get("suite", {}).get("datasets")} for e in experiments.list(limit)]
+def list_experiments(limit: int = 100, all_profiles: bool = False) -> list[dict]:
+    """Experiments of the active profile (pre-profiles experiments ran the copilot);
+    ``all_profiles=true`` lists every agent's."""
+    from eval_harness.profiles import active_profile_name
+
+    active = active_profile_name()
+    out = []
+    for e in experiments.list(limit if all_profiles else max(limit * 5, 500)):
+        prof = e.snapshot.get("profile", "copilot")
+        if not all_profiles and prof != active:
+            continue
+        out.append(e.model_dump(mode="json", exclude={"snapshot"}) | {
+            "model": e.snapshot.get("models", {}).get("agent", {}).get("model"),
+            "agent": e.snapshot.get("target", {}).get("agent_config", {}).get("name"),
+            "datasets": e.snapshot.get("suite", {}).get("datasets"),
+            "profile": prof, "variant": e.snapshot.get("variant"), "mode": e.snapshot.get("mode")})
+        if len(out) >= limit:
+            break
+    return out
 
 
 @router.get("/experiments/{exp_id}")

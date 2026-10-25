@@ -29,7 +29,26 @@ export interface Experiment {
   created_at: string; finished_at: string | null; total_trials: number; done_trials: number;
   summary: Summary; langsmith_url: string | null; error: string | null;
   snapshot: Record<string, any>; model?: string; agent?: string; datasets?: string[];
+  profile?: string; variant?: string | null; mode?: string;
 }
+
+export type Capability = "chat" | "rerun" | "fault_injection" | "record_replay" | "model_override" | "traffic_sim";
+
+export interface VariantView { name: string; description: string; target: string; aliases: string[];
+  capabilities: Capability[]; capabilities_declared: boolean }
+
+export interface InventoryItem { name: string; description: string; side_effects: boolean }
+
+export interface ProfileView {
+  name: string; description: string; active: boolean; legacy_layout: boolean; default_variant: string | null;
+  variants: VariantView[];
+  defaults: { quick_suite: string; trace_suite: string; trace_group: string; langsmith_prefix: string | null };
+  traces: { adapter: string | null; project: string | null; path: string | null; filters: Record<string, any>; window_hours: number };
+  conventions: Record<string, any>;
+  inventory?: { tools: InventoryItem[]; skills: InventoryItem[]; from_registry: boolean };
+}
+
+export interface Profiles { active: string; modes: string[]; capabilities: Capability[]; profiles: ProfileView[] }
 
 export interface GradeLite { grader: string; passed: boolean | null; skipped: boolean; score: number | null; layer: number }
 
@@ -66,8 +85,11 @@ export interface Catalog {
   targets: string[]; metrics: string[]; middleware: string[];
   generators: { type: string; description: string }[];
   agents: { name: string; description: string; skill_loader_mode: string; skills: string | string[]; tools: string | string[] }[];
-  suites: { name: string; description: string; agent: string; target: string; k: number; graders: string[]; datasets: string[] }[];
+  suites: { name: string; description: string; agent: string; target: string; k: number; graders: string[]; datasets: string[];
+    variant?: string | null; mode?: string | null }[];
   datasets: Record<string, number>;
+  /** the active agent profile (added with profiles; absent on older servers) */
+  profile?: ProfileView; modes?: string[]; trace_adapters?: string[];
 }
 
 export interface Candidate { id: string; source: string; tags: string[]; input: any; expected: Record<string, any>;
@@ -82,6 +104,7 @@ export interface CompareResult {
   per_task: { task_id: string; a: number; b: number; delta: number }[];
   cost_latency: { a: Record<string, number>; b: Record<string, number> };
   config_diff: Record<string, any>;
+  warnings?: string[];
 }
 
 export interface AlignmentStats { coverage: number | null; ffr: number | null; alignment: number | null; kappa: number;

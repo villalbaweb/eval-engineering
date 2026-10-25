@@ -7,10 +7,20 @@ from pathlib import Path
 
 _TMP = Path(tempfile.mkdtemp(prefix="evalh-tests-"))
 _REPO = Path(__file__).resolve().parents[2]
-shutil.copytree(_REPO / "evals", _TMP / "evals",
-                ignore=shutil.ignore_patterns("candidates", "cassettes", "synthetic", "traces"))
+def _local_only(directory: str, names: list[str]) -> set[str]:
+    """Machine-local, generated content (never part of the test copy): review queues, cassettes, and the
+    generated dataset groups. Only inside datasets/ for the latter, so a profile's own traces/ export stays."""
+    parent = Path(directory).name
+    skip = {"candidates", "cassettes"} | ({"synthetic", "traces"} if parent == "datasets" else set())
+    return {n for n in names if n in skip}
+
+
+shutil.copytree(_REPO / "evals", _TMP / "evals", ignore=_local_only)
 (_TMP / "evals" / "candidates").mkdir()
 (_TMP / "evals" / "cassettes").mkdir()
+for _prof in (_TMP / "evals" / "profiles").glob("*/profile.yaml"):  # profiles layout: same, per profile
+    (_prof.parent / "candidates").mkdir(exist_ok=True)
+    (_prof.parent / "cassettes").mkdir(exist_ok=True)
 
 os.environ.update({
     "EVAL_HARNESS_NO_DOTENV": "1",  # never read the developer's real .env (keys!) in tests
@@ -24,7 +34,7 @@ os.environ.update({
 })
 for var in ("JUDGE_MODEL", "JUDGE_PROVIDER", "AGENT_MODEL", "OPENROUTER_API_KEY", "GOOGLE_API_KEY",
             "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TAVILY_API_KEY", "LANGCHAIN_API_KEY", "SIMULATOR_MODEL",
-            "SIMULATOR_PROVIDER", "OPENROUTER_MODEL", "OPENROUTER_BASE_URL"):
+            "SIMULATOR_PROVIDER", "OPENROUTER_MODEL", "OPENROUTER_BASE_URL", "EVAL_PROFILE"):
     os.environ.pop(var, None)
 
 import pytest  # noqa: E402

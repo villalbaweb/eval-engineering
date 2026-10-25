@@ -61,37 +61,55 @@ class Settings(BaseSettings):
         return self.langsmith_tracing and bool(self.langsmith_api_key)
 
     # --- content folders (data, not code) ---
+    # Agent-specific content lives in the ACTIVE PROFILE's folder: evals/profiles/<name>/ in the profiles
+    # layout, or evals/ itself in the legacy flat layout (so these paths are unchanged there).
+    @property
+    def profile_dir(self) -> Path:
+        from eval_harness.profiles.loader import profile_root
+
+        return profile_root(evals=self.evals_dir)
+
     @property
     def agents_dir(self) -> Path:
+        """Legacy layout only: agent configs (variants live in ``<profile>/variants`` otherwise)."""
         return self.evals_dir / "agents"
 
     @property
     def datasets_dir(self) -> Path:
-        return self.evals_dir / "datasets"
+        return self.profile_dir / "datasets"
 
     @property
     def suites_dir(self) -> Path:
-        return self.evals_dir / "suites"
+        return self.profile_dir / "suites"
 
     @property
     def rubrics_dir(self) -> Path:
+        """The active profile's rubrics (see ``shared_rubrics_dir`` for the fallback)."""
+        return self.profile_dir / "rubrics"
+
+    @property
+    def shared_rubrics_dir(self) -> Path:
         return self.evals_dir / "rubrics"
 
     @property
     def cassettes_dir(self) -> Path:
-        return self.evals_dir / "cassettes"
+        return self.profile_dir / "cassettes"
 
     @property
     def corpus_dir(self) -> Path:
-        return self.evals_dir / "corpus"
+        return self.profile_dir / "corpus"
 
     @property
     def synthesis_dir(self) -> Path:
-        return self.evals_dir / "synthesis"
+        return self.profile_dir / "synthesis"
+
+    @property
+    def faults_dir(self) -> Path:
+        return self.profile_dir / "faults"
 
     @property
     def candidates_dir(self) -> Path:
-        return self.evals_dir / "candidates"
+        return self.profile_dir / "candidates"
 
 
 @lru_cache

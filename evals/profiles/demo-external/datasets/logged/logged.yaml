@@ -1,0 +1,40 @@
+# Curated logged conversations (messages only: tool calls, errors and skills are derived with the
+# profile's conventions when graded). Add more by importing traces and accepting them into 'logged'.
+tasks:
+  - id: support-refund-01
+    kind: regression
+    tags: [trace, refunds]
+    input: { messages: [{ role: user, content: "I want a refund for order 1042" }] }
+    expected:
+      skills_loaded: [refunds]
+      tool_calls: [{ name: search_orders }]
+    metadata:
+      transcript:
+        messages:
+          - { role: user, content: "I want a refund for order 1042" }
+          - role: assistant
+            content: ""
+            tool_calls:
+              - { id: c1, type: function, function: { name: use_capability, arguments: '{"name": "refunds"}' } }
+              - { id: c2, type: function, function: { name: search_orders, arguments: '{"order_id": "1042"}' } }
+          - { role: tool, tool_call_id: c1, content: "Refund policy loaded." }
+          - { role: tool, tool_call_id: c2, content: '{"orders": [{"id": "1042", "status": "delivered"}]}' }
+          - { role: assistant, content: "Order 1042 is eligible; I started the refund." }
+  - id: support-tracking-01
+    kind: regression
+    tags: [trace, shipping]
+    input: { messages: [{ role: user, content: "Where is my parcel?" }] }
+    expected:
+      skills_loaded: [shipping]
+    metadata:
+      transcript:
+        messages:
+          - { role: user, content: "Where is my parcel?" }
+          - role: assistant
+            content: ""
+            tool_calls:
+              - { id: c1, type: function, function: { name: use_capability, arguments: '{"name": "shipping"}' } }
+              - { id: c2, type: function, function: { name: search_orders, arguments: "{}" } }
+          - { role: tool, tool_call_id: c1, content: "Shipping guide loaded." }
+          - { role: tool, tool_call_id: c2, content: "HTTP 503 Service Unavailable" }
+          - { role: assistant, content: "I could not reach the orders service, please try again later." }

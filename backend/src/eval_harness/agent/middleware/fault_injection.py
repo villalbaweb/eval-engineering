@@ -25,7 +25,7 @@ EMPTY_TEXT = "No relevant passages found."
 
 
 def load_profile(name: str) -> list[dict]:
-    p = get_settings().evals_dir / "faults" / f"{name}.yaml"
+    p = get_settings().faults_dir / f"{name}.yaml"
     if not p.exists():
         raise FileNotFoundError(f"fault profile '{name}' not found at {p}")
     return (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("rules", [])

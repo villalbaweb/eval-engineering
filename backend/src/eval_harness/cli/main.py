@@ -18,8 +18,68 @@ app.add_typer(datasets_app, name="datasets")
 
 
 @app.callback()
-def _main(verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False) -> None:
+def _main(verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+          profile: Annotated[str | None, typer.Option(
+              "--profile", help="agent profile to work on (default: EVAL_PROFILE, else copilot)")] = None) -> None:
     setup_logging(logging.DEBUG if verbose else logging.WARNING)
+    if profile:
+        from eval_harness.profiles import ProfileNotFound, set_active_profile
+
+        try:
+            set_active_profile(profile)
+        except ProfileNotFound as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(2) from e
+
+
+@app.command()
+def profiles() -> None:
+    """List agent profiles and their variants (the active profile is marked)."""
+    from eval_harness.profiles import active_profile_name, is_legacy_layout, list_profiles, list_variants
+
+    active = active_profile_name()
+    t = Table(show_edge=False)
+    for c in ("profile", "variant", "target", "info"):
+        t.add_column(c)
+    for p in list_profiles():
+        mark = " [green](active)[/green]" if p.name == active else ""
+        t.add_row(f"[bold]{p.name}[/bold]{mark}", "", "", p.description)
+        for v in list_variants(p.name):
+            default = " (default)" if v.name == p.default_variant else ""
+            aliases = f" aliases: {', '.join(v.aliases)}" if v.aliases else ""
+            t.add_row("", v.name + default, v.target, (v.description[:70] + aliases).strip())
+    console.print(t)
+    if is_legacy_layout():
+        console.print("[dim]legacy flat evals/ layout (read as profile 'copilot'); "
+                      "`evalh migrate-profiles` shows how to move to evals/profiles/[/dim]")
+
+
+@app.command("migrate-profiles")
+def migrate_profiles(
+    apply_: Annotated[bool, typer.Option("--apply", help="actually move the files (default: dry run)")] = False,
+    revert: Annotated[bool, typer.Option("--revert", help="undo a previous --apply")] = False,
+) -> None:
+    """Move the flat evals/ layout into evals/profiles/copilot/ (optional; old names keep working)."""
+    from eval_harness.core.settings import get_settings
+    from eval_harness.profiles import migrate
+
+    evals = get_settings().evals_dir
+    if revert:
+        console.print(migrate.revert(evals))
+        return
+    p = migrate.apply(evals) if apply_ else migrate.plan(evals)
+    if p.note:
+        console.print(p.note)
+        return
+    verb = "moved" if apply_ else "would move"
+    for src, dst in p.moves:
+        console.print(f"  {verb} evals/{src} -> evals/{dst}")
+    for src, dst in p.variants:
+        console.print(f"  {verb} evals/{src} -> evals/{dst} (variant; old name kept as alias)")
+    for c in p.created:
+        console.print(f"  {'created' if apply_ else 'would create'} evals/{c}")
+    if not apply_:
+        console.print("[dim]dry run - re-run with --apply (undo later with --revert)[/dim]")
 
 
 @app.command()
@@ -34,6 +94,8 @@ def run(
     name: Annotated[str | None, typer.Option()] = None,
     dataset: Annotated[list[str] | None, typer.Option(
         help="run this dataset group instead of the suite's own (repeatable); the suite supplies graders/target")] = None,
+    variant: Annotated[str | None, typer.Option(help="variant of the active profile (replaces --agent)")] = None,
+    mode: Annotated[str | None, typer.Option(help="live | multiturn | trace | replay (replaces --target)")] = None,
     failures: Annotated[bool, typer.Option("--failures/--no-failures")] = True,
 ) -> None:
     """Run a suite and print the metrics table."""
@@ -48,12 +110,13 @@ def run(
     try:
         runner = prepare_runner(suite, name=name, on_event=on_event, overrides={
             "agent": agent, "k": k, "concurrency": concurrency, "tool_mode": tool_mode, "target": target,
-            "max_tasks": max_tasks, "datasets": dataset})
+            "max_tasks": max_tasks, "datasets": dataset, "variant": variant, "mode": mode})
     except (FileNotFoundError, KeyError, ValueError) as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(2) from e
     console.print(f"running [bold]{suite}[/bold]: {len(runner.tasks)} tasks x k={runner.suite.run.k} "
-                  f"(agent={runner.suite.agent}, target={runner.suite.target})")
+                  f"(agent={runner.exp.snapshot.get('variant') or runner.suite.agent}, target={runner.suite.target}"
+                  + (f", profile={runner.profile.name}" if runner.profile.name != "copilot" else "") + ")")
     exp = asyncio.run(runner.run())
     render_summary(exp, trials.for_experiment(exp.id), failures=failures)
     raise typer.Exit(0 if exp.status == "completed" else 1)
@@ -96,6 +159,9 @@ def compare(a: str, b: str) -> None:
     console.print(f"two-proportion z={r['two_proportion_z']['z']:.2f} p={r['two_proportion_z']['p_value']:.3f}   "
                   f"McNemar p={r['mcnemar']['p_value']:.3f}")
     console.print(f"[red]regressions: {r['regressions']}[/red]\n[green]improvements: {r['improvements']}[/green]")
+    for w in r.get("warnings", []):
+        if w.startswith("different agents"):  # the suite case is covered by the like-for-like note below
+            console.print(f"\n[yellow]warning: {w}[/yellow]")
     if r["config_changes"]:
         console.print("\n[bold]what differs between the runs[/bold]")
         for c in r["config_changes"]:
@@ -237,7 +303,9 @@ def synthesize(config: str, accept: Annotated[bool, typer.Option(help="skip revi
 
 @app.command()
 def traffic(n: int = 10, personas: Annotated[str | None, typer.Option()] = None,
-            agent: str = "copilot-baseline", fault_rate: float = 0.0) -> None:
+            agent: Annotated[str | None, typer.Option(
+                "--agent", "--variant", help="variant of the active profile (default: its default variant)")] = None,
+            fault_rate: float = 0.0) -> None:
     """Simulate user traffic against the agent (traced to LangSmith as source=traffic)."""
     from eval_harness.evals.data_sources.traffic.simulator import simulate_traffic
 
@@ -248,10 +316,10 @@ def traffic(n: int = 10, personas: Annotated[str | None, typer.Option()] = None,
 def import_traces(adapter: Annotated[str | None, typer.Option(help="langsmith | jsonl (default: langsmith if enabled)")] = None, limit: int = 50, source: Annotated[str | None, typer.Option()] = None,
                   errors_only: bool = False, path: Annotated[str | None, typer.Option()] = None) -> None:
     """Import logged traces as candidate tasks (review them, then accept)."""
+    from eval_harness.evals.data_sources.traces.importer import default_adapter
     from eval_harness.evals.data_sources.traces.importer import import_traces as do_import
-    from eval_harness.integrations.langsmith.client import enabled
 
-    adapter = adapter or ("langsmith" if enabled() else "jsonl")
+    adapter = adapter or default_adapter()  # the profile's trace source, else langsmith if enabled, else jsonl
     console.print(do_import(adapter, limit=limit, source=source, errors_only=errors_only, path=path))
 
 

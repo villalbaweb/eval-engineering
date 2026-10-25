@@ -93,10 +93,18 @@ from eval_harness.evals.targets.base import Target, TrialInfo, register_target
 
 @register_target("__NAME__")
 class __CLASS__(Target):
-    """Evaluate anything that can turn a task into a transcript (another agent, an HTTP service...)."""
+    """Evaluate anything that can turn a task into a transcript (another agent, an HTTP service...).
+    Use it from a profile variant: ``variants/<name>.yaml`` with ``target: __NAME__``."""
+
+    # what variants using this target support (the UI and runner gate on it); see targets/base.py
+    capabilities = frozenset({"rerun"})
 
     async def run(self, task: Task, run: RunSettings, info: TrialInfo) -> tuple[Transcript, Outcome]:
         answer = "TODO call your system with task.input['messages'] and map the response"
+        # if the response carries the agent's messages, build the transcript with the profile's conventions:
+        #   from eval_harness.evals.data_sources.traces.base import transcript_from_messages
+        #   from eval_harness.profiles import active_profile
+        #   t = transcript_from_messages(messages, conventions=active_profile().conventions)
         t = Transcript(messages=[*task.input["messages"], {"role": "assistant", "content": answer}])
         return t, Outcome(final_answer=answer)
 '''

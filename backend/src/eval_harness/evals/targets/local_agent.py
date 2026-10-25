@@ -35,6 +35,8 @@ def lc_config(info: TrialInfo, task: Task, run_id: str) -> dict[str, Any]:
 class LocalAgentTarget(Target):
     """In-process ``create_agent`` built from an AgentConfig (the default system under test)."""
 
+    capabilities = frozenset({"chat", "rerun", "fault_injection", "record_replay", "model_override", "traffic_sim"})
+
     def __init__(self, cfg: AgentConfig, *, suite_name: str = "default"):
         self.cfg = cfg
         self.suite_name = suite_name

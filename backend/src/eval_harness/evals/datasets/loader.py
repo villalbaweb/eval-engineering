@@ -100,15 +100,26 @@ def parse_suite(data: Any, *, name: str) -> Suite:
 
 def validate_suite_refs(suite: Suite) -> list[str]:
     """Problems a suite file can parse with but cannot run with (unknown grader/target/agent)."""
-    from eval_harness.agent.config import list_agent_configs
+    from eval_harness.agent.config import load_agent_config
     from eval_harness.evals.graders.base import grader_registry
     from eval_harness.evals.targets.base import target_registry
 
     errs = [f"unknown grader type '{g.type}'" for g in suite.graders if g.type not in grader_registry]
     if suite.target not in target_registry:
         errs.append(f"unknown target '{suite.target}' (have {target_registry.names()})")
-    if suite.agent not in {a.name for a in list_agent_configs()}:
-        errs.append(f"unknown agent '{suite.agent}'")
+    from eval_harness.evals.runner.service import CapabilityError, resolve_run
+
+    needs_agent = suite.target in ("local_agent", "multiturn_sim") and suite.mode not in ("trace", "replay")
+    if needs_agent and not suite.variant and "agent" in suite.model_fields_set:
+        try:
+            load_agent_config(suite.agent)  # names, aliases and profile:variant all resolve
+        except FileNotFoundError:
+            errs.append(f"unknown agent '{suite.agent}'")
+    if suite.variant or suite.mode:
+        try:
+            resolve_run(suite, {})  # unknown variant, or a mode the variant cannot support
+        except (FileNotFoundError, CapabilityError) as e:
+            errs.append(str(e))
     return errs
 
 

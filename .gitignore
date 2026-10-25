@@ -227,5 +227,13 @@ __marimo__/
 /evals/datasets/traces/
 /evals/datasets/accepted/
 /evals/datasets/langsmith/
+# same, inside agent profiles (evals/profiles/<name>/...)
+/evals/profiles/*/candidates/*
+!/evals/profiles/*/candidates/.gitkeep
+/evals/profiles/*/datasets/synthetic/
+/evals/profiles/*/datasets/traces/
+/evals/profiles/*/datasets/accepted/
+/evals/profiles/*/datasets/langsmith/
+/evals/profiles/.migration.json
 node_modules/
 frontend/dist/

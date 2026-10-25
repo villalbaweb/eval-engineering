@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from eval_harness import __version__
+from eval_harness.api.profile_context import ProfileMiddleware
 from eval_harness.api.routers import (
     annotations,
     catalog,
@@ -13,14 +14,16 @@ from eval_harness.api.routers import (
     datasets,
     experiments,
     integrations,
+    profiles,
 )
 from eval_harness.core.settings import get_settings
 
 app = FastAPI(title="Eval Engineering Lab", version=__version__)
+app.add_middleware(ProfileMiddleware)  # X-Eval-Profile / ?profile= selects the agent for the request
 app.add_middleware(CORSMiddleware, allow_origins=get_settings().cors_origins.split(","),
                    allow_methods=["*"], allow_headers=["*"])
 
-for r in (catalog, chat, datasets, experiments, annotations, compare, data_sources, integrations):
+for r in (catalog, chat, datasets, experiments, annotations, compare, data_sources, integrations, profiles):
     app.include_router(r.router, prefix="/api")
 
 

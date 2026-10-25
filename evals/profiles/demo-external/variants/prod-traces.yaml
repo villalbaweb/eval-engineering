@@ -1,0 +1,2 @@
+description: Read-only production logs. The lab cannot call this agent, only grade what it did.
+target: trace_source

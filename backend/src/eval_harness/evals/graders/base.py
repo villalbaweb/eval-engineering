@@ -15,6 +15,7 @@ from typing import Any, ClassVar
 from eval_harness.core.registry import Registry
 from eval_harness.evals.domain.grade import GradeResult
 from eval_harness.evals.domain.outcome import Outcome
+from eval_harness.evals.domain.profile import Conventions, Profile
 from eval_harness.evals.domain.suite import GraderSpec
 from eval_harness.evals.domain.task import Task
 from eval_harness.evals.domain.transcript import Transcript
@@ -27,6 +28,12 @@ class GradeContext:
     outcome: Outcome
     trial_id: str = ""
     experiment_id: str = ""
+    profile: Profile | None = None  # the agent under test (read-only); None = the lab's own conventions
+
+    @property
+    def conventions(self) -> Conventions:
+        """How to read this agent's transcripts (skills, tool errors, citations)."""
+        return self.profile.conventions if self.profile is not None else Conventions()
 
 
 class Grader:

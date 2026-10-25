@@ -38,5 +38,8 @@ class Suite(BaseModel):
     kinds: list[str] = Field(default_factory=list)
     graders: list[GraderSpec]
     run: RunSettings = Field(default_factory=RunSettings)
-    agent: str = "copilot-baseline"  # name of an agent config in evals/agents
-    target: str = "local_agent"
+    agent: str = "copilot-baseline"  # legacy: name of an agent config (an alias of a variant)
+    target: str = "local_agent"  # legacy: how to run; prefer `variant` + `mode`
+    # profiles: which variant of the active profile's agent, and how the evaluation uses it
+    variant: str | None = None  # name / alias / profile:variant (default: the profile's default variant)
+    mode: Literal["live", "multiturn", "trace", "replay"] | None = None  # None: legacy `target` decides

@@ -1,0 +1,34 @@
+# A second agent, to prove the lab is not tied to the built-in copilot (.agents/AGENT_PROFILES_PLAN.md, P6).
+# Imagine an external customer-support agent whose traces we can read but which the lab cannot call.
+# Everything about it lives in this folder; no engine code knows it exists.
+description: Example external support agent (trace-only, different trace conventions). Copy this folder to start your own agent.
+default_variant: prod-traces
+
+inventory:                      # metadata only: shown in the UI, used to check expectations; never executed
+  tools:
+    - { name: search_orders, description: Look up a customer's orders }
+    - { name: refund_order, description: Issue a refund, side_effects: true }
+    - { name: kb_lookup, description: Search the help-center articles }
+    - { name: use_capability, description: Load a capability (this agent's word for a skill) }
+  skills:
+    - { name: refunds, description: Refund policy and steps }
+    - { name: returns, description: Returns and exchanges }
+    - { name: shipping, description: Delivery times and tracking }
+
+conventions:                    # how to read THIS agent's transcripts
+  skills:
+    - { tool: use_capability, arg: name }        # a skill load is use_capability(name=...)
+  tool_error:                                    # a tool failed when any rule matches
+    - { result_json_key: error }                 # {"error": "..."}
+    - { result_regex: "^HTTP 5\\d\\d" }          # or a raw 5xx line
+  citations: null                                # this agent does not cite sources
+
+traces:                         # where its traces live: a JSONL export in this folder
+  adapter: jsonl
+  path: traces
+
+defaults:
+  quick_suite: traces
+  trace_suite: traces
+  trace_group: logged
+  langsmith_prefix: demo-external

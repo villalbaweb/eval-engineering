@@ -7,7 +7,7 @@ import json
 import uuid
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,8 +23,29 @@ router = APIRouter(tags=["chat"])
 
 class ChatRequest(BaseModel):
     messages: list[dict[str, Any]]  # full history, OpenAI format
-    agent: str = "copilot-baseline"
+    agent: str | None = None  # legacy name of `variant`
+    variant: str | None = None  # variant of the active profile (default: the profile's default variant)
     fault_profile: str | None = None
+
+
+def chat_variant(ref: str | None, *, fault_profile: str | None = None) -> str:
+    """The in-process agent config to chat with, or an HTTP 400 explaining why this variant cannot chat."""
+    from eval_harness.agent.config import AGENT_TARGETS
+    from eval_harness.evals.targets.base import target_capabilities
+    from eval_harness.profiles import VariantNotFound, resolve_variant
+
+    try:
+        _, v = resolve_variant(ref)
+    except VariantNotFound as e:
+        raise HTTPException(400, str(e)) from e
+    caps = target_capabilities(v.target)
+    if caps is not None and "chat" not in caps:
+        raise HTTPException(400, f"variant '{v.name}' (target {v.target}) cannot chat: it only has logged runs")
+    if v.target not in AGENT_TARGETS:
+        raise HTTPException(400, f"chatting with target '{v.target}' is not supported in the Playground yet")
+    if fault_profile and caps is not None and "fault_injection" not in caps:
+        raise HTTPException(400, f"variant '{v.name}' does not support fault injection")
+    return v.name
 
 
 def _text(content: Any) -> str:
@@ -35,6 +56,10 @@ def _text(content: Any) -> str:
 
 @router.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
+    from eval_harness.profiles import active_profile_name
+
+    agent_name = chat_variant(req.variant or req.agent, fault_profile=req.fault_profile)
+    profile = active_profile_name()
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
     run_id = str(uuid.uuid4())
@@ -45,10 +70,11 @@ async def chat_stream(req: ChatRequest):
     def work() -> None:
         try:
             ctx = RunContext(on_event=push, fault_profile=req.fault_profile)
-            agent = build_agent(load_agent_config(req.agent), ctx=ctx)
+            agent = build_agent(load_agent_config(agent_name), ctx=ctx)
             push({"type": "start", "run_id": run_id, "model": agent.model_spec.slug, "tools": agent.tool_names})
             cfg = {"run_id": run_id, "run_name": "playground-chat", "tags": ["playground"],
-                   "metadata": {"source": "playground", "agent": req.agent},
+                   "metadata": {"source": "playground", "agent": agent_name, "profile": profile,
+                                "variant": agent_name},
                    "recursion_limit": agent.config.recursion_limit}
             final: list = []
             for chunk in agent.graph.stream({"messages": req.messages}, config=cfg, stream_mode="values"):

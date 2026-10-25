@@ -73,10 +73,12 @@ export function Suites() {
           {name && (
             <p className="small muted">
               dataset groups: {groups.map((g) => <code key={g} style={{ marginRight: 6 }}>{g}</code>)}
+              {catalog.data?.profile && <> · variants (<code>variant:</code>): {catalog.data.profile.variants.map((v) => v.name).join(", ")}
+                {" "}· modes (<code>mode:</code>): {(catalog.data.modes ?? []).join(", ")}</>}
               · graders: {catalog.data?.graders.map((g) => g.type).join(", ")}
-              · targets: {catalog.data?.targets.join(", ")}
+              · targets (legacy <code>target:</code>): {catalog.data?.targets.join(", ")}
             </p>)}
-          {!name && <p className="muted">Pick a suite on the left, or create one from a template. Fields: <code>name, description, agent, target, datasets, include_tags, exclude_tags, kinds, graders, run</code>.</p>}
+          {!name && <p className="muted">Pick a suite on the left, or create one from a template. Fields: <code>name, description, variant, mode, datasets, include_tags, exclude_tags, kinds, graders, run</code> (older suites use <code>agent</code> / <code>target</code>, still supported).</p>}
         </Card>
       </div>
     </>

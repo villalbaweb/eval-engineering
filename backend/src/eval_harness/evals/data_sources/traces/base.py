@@ -7,6 +7,7 @@ from typing import Any, ClassVar
 from pydantic import BaseModel, Field
 
 from eval_harness.core.registry import Registry
+from eval_harness.evals.domain.profile import Conventions
 from eval_harness.evals.domain.transcript import Transcript
 
 
@@ -47,8 +48,11 @@ ROLE_BY_TYPE = {"human": "user", "ai": "assistant", "tool": "tool", "system": "s
                 "HumanMessage": "user", "AIMessage": "assistant", "ToolMessage": "tool", "SystemMessage": "system"}
 
 
-def normalize_messages(raw: list[Any]) -> list[dict[str, Any]]:
-    """LangChain-serialized (or OpenAI-style) messages -> OpenAI chat dicts."""
+def normalize_messages(raw: list[Any], statuses: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """LangChain-serialized (or OpenAI-style) messages -> OpenAI chat dicts.
+
+    ``statuses``, when given, is filled with ``tool_call_id -> status`` of tool messages (kept out of the
+    messages themselves) for profiles whose tool-error convention reads the message status."""
     out: list[dict[str, Any]] = []
     for m in raw or []:
         if not isinstance(m, dict):
@@ -72,16 +76,23 @@ def normalize_messages(raw: list[Any]) -> list[dict[str, Any]]:
             msg["tool_calls"] = norm
         if role == "tool":
             msg["tool_call_id"] = m.get("tool_call_id", "")
+            if statuses is not None and m.get("status"):
+                statuses[msg["tool_call_id"]] = str(m["status"])
         out.append(msg)
     return out
 
 
-def transcript_from_messages(messages: list[dict[str, Any]], **meta: Any) -> Transcript:
-    """Rebuild tool-call records and the skills list from plain messages."""
+def transcript_from_messages(messages: list[dict[str, Any]], *, conventions: Conventions | None = None,
+                             statuses: dict[str, str] | None = None, **meta: Any) -> Transcript:
+    """Rebuild tool-call records and the skills list from plain messages, reading them with the agent
+    profile's ``conventions`` (default: the lab's own rules)."""
     import json
 
     from eval_harness.evals.domain.transcript import ToolCallRecord
+    from eval_harness.profiles.conventions import skill_from_call, tool_failed
 
+    conv = conventions or Conventions()
+    statuses = statuses or {}
     results = {m.get("tool_call_id"): m for m in messages if m.get("role") == "tool"}
     calls, skills = [], []
     for m in messages:
@@ -94,10 +105,8 @@ def transcript_from_messages(messages: list[dict[str, Any]], **meta: Any) -> Tra
             res = results.get(tc.get("id"), {})
             text = res.get("content", "") if isinstance(res.get("content"), str) else str(res.get("content", ""))
             calls.append(ToolCallRecord(id=tc.get("id", ""), name=fn.get("name", ""), args=args, result=text,
-                                        error=text.startswith("ERROR")))
-            name = fn.get("name", "")
-            if name == "load_skill" and args.get("name"):
-                skills.append(args["name"])
-            elif name.startswith("load_skill_"):
-                skills.append(name[len("load_skill_"):].replace("_", "-"))
+                                        error=tool_failed(conv, text, statuses.get(tc.get("id", "")))))
+            skill = skill_from_call(conv, fn.get("name", ""), args if isinstance(args, dict) else {})
+            if skill:
+                skills.append(skill)
     return Transcript(messages=messages, tool_calls=calls, skills_loaded=list(dict.fromkeys(skills)), meta=meta)

@@ -1,6 +1,7 @@
 # Agent Profiles: decoupling the lab from the toy agent (implementation plan)
 
-> **Status:** planned, not started. **Date:** 2026-10-24
+> **Status:** implemented (P0-P7), 2026-10-24/25. Not committed. See "Implementation status" at the end.
+> **Date:** 2026-10-24
 > **Goal:** the eval engine and UI work with *any* agent. The toy Eval Copilot becomes the first **profile** (`copilot`), and switching to another agent means switching profile, not editing graders or pages.
 > **Prerequisite for:** [VALIDATION_TARGET_ADAPTER.md](VALIDATION_TARGET_ADAPTER.md). With profiles in place, evaluating the real agent becomes "write a profile (data) + an `http_agent` target (code) + a trace adapter only if its traces are not in a supported format".
 
@@ -330,3 +331,33 @@ P0 is small and comes first. P1–P3 are the core (largest: P1 migration + path 
 4. **Profile vs. variant rule** as in §1: variants are created as needed (improvement candidates, ablations, environments) and stay comparable; anything that invalidates datasets or expectations is a new profile.
 5. **Profile / trace adapter / target split** as in §2: the profile is data (what the agent is, how to read it, where its traces are); trace adapters and targets are shared engine code.
 6. **Additive, no regressions** (§6): the legacy layout and every old name, field, command and link keep working; migration is optional and reversible; a golden baseline captured before any code change must match after every phase.
+
+---
+
+## 14. Implementation status (2026-10-25)
+
+All phases done; the no-regression contract (section 6) holds.
+
+**Verified**
+- Golden baseline (`backend/tests/golden/baseline.json`, captured in P0 before any code change): every suite's per-trial verdicts, grader results, skills and tool-error flags, the traffic → import → accept → trace-grading loop, and API response shapes. Matches exactly on the legacy flat layout and on the migrated layout after every phase. A deliberate change (a grader removed from `smoke`) is detected.
+- All pre-existing tests pass unchanged (only `tests/conftest.py` infrastructure changed: per-profile folders, narrower copy filter). Backend 136 tests, frontend 12, ruff, typecheck, build: green.
+- Migration round trip (apply → revert) is byte for byte; apply twice is a no-op.
+- `demo-external` (committed, `evals/profiles/demo-external/`) runs end to end via API and CLI with no engine code referring to it.
+- Real repo smoke (offline, temp DB): `evalh profiles`, `evalh --profile demo-external run traces`, `evalh run smoke`, `--mode live` refusal.
+
+**Not verified**
+- The UI was not opened in a browser in this session (typecheck, unit tests and the API tests behind every page pass). Check visually: profile selector, Playground notice for `demo-external`, Experiments variant/mode, Catalog variants/conventions tabs, Data sources traffic card.
+- LangSmith paths are covered by unit tests only (no live LangSmith run).
+
+**Deviations from the plan (deliberate)**
+- The copilot in this repo is **not migrated**: the flat layout and `evals/profiles/*` coexist (the flat folder is the `copilot` profile unless `evals/profiles/copilot/` exists). Migration stays opt-in (`evalh migrate-profiles`).
+- Migration **moves suites unchanged** instead of rewriting `agent:`/`target:`; old names resolve through variant aliases. Less risk, same result.
+- A migrated copilot keeps the LangSmith prefix `eval-eng` (not `copilot`) so existing LangSmith datasets keep matching.
+- Default `tool_error` convention is the `ERROR` prefix only (the exact pre-profiles import rule); `message_status` is opt-in per profile, with statuses carried beside the messages so message shape is unchanged.
+- `citations` gained `in_results` (how a cited id must appear in tool results; default `[{id}]`), needed to reproduce the old grader exactly and to support other formats.
+- The `trace` target derives tool calls/skills from messages with the profile conventions when a stored transcript has messages only (hand-written datasets of another agent); copilot transcripts already carry tool calls and are untouched.
+- `multiturn` mode currently wraps in-process agents only; other chat-capable targets are refused with a reason until they implement it.
+- Targets that declare no capabilities (`None`, e.g. older plugins) are never gated.
+- Simulated traffic of non-copilot agents goes to `data/traffic/<profile>/`; the experiment list is filtered to the active profile (`?all_profiles=true` lists all).
+
+**Where things are**: `evals/domain/profile.py` (models), `profiles/{loader,conventions,inventory,migrate}.py`, `api/profile_context.py` (header middleware), `api/routers/profiles.py`, `evals/runner/service.py::resolve_run` (variant/mode/capabilities), `frontend/src/{shared/profile.ts,entities/profile.ts}`, docs in RUNBOOK 4.18 and 5.6.

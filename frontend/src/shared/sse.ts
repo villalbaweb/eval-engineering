@@ -1,3 +1,5 @@
+import { profileHeaders } from "./profile";
+
 export interface SSEEvent<T = any> { event: string; data: T }
 
 /** Parse a chunk buffer of Server-Sent Events. Handles \n and \r\n (sse-starlette uses \r\n). */
@@ -24,7 +26,7 @@ export function parseSSE(buffer: string): { events: SSEEvent[]; rest: string } {
 export async function streamSSE(
   url: string, init: RequestInit, onEvent: (e: SSEEvent) => void, signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(url, { ...init, signal });
+  const res = await fetch(url, { ...init, headers: { ...profileHeaders(), ...(init.headers as Record<string, string>) }, signal });
   if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText}`);
   const reader = res.body.getReader();
   const decoder = new TextDecoder();

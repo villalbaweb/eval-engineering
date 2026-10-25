@@ -35,6 +35,7 @@ export function Compare() {
             <Kpi label="difference (B − A)" value={signedPct(r.delta)} sub={sig ? "significant (p<0.05)" : "not significant"} />
             <Kpi label="p-values" value={`z ${num(r.two_proportion_z.p_value, 3)}`} sub={`McNemar ${num(r.mcnemar.p_value, 3)}`} />
           </div>
+          {(r.warnings ?? []).map((w) => <div key={w} className="notice">{w}</div>)}
           {!sig && <div className="notice">The difference is within noise at this sample size. Run more trials (higher k) or more tasks before concluding anything.</div>}
           {Object.keys(r.config_diff).length > 0 && <Card title="What differs between the runs"><pre>{JSON.stringify(r.config_diff, null, 2).slice(0, 1500)}</pre></Card>}
           <Card title={`Per task (${r.regressions.length} regressions · ${r.improvements.length} improvements · ${r.unchanged} unchanged)`}>

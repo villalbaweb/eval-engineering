@@ -1,0 +1,14 @@
+name: traces
+description: Grade the support agent's logged conversations with its own conventions (nothing is re-run).
+mode: trace
+datasets: [logged]
+graders:
+  - { type: skill_selection }          # skills come from use_capability(name=...)
+  - { type: tool_called }
+  - { type: tool_errors }              # errors are {"error": ...} or HTTP 5xx lines
+  - { type: error_recovery }
+  - { type: step_efficiency }
+  - { type: citation_grounding }       # skips: this agent has no citation format
+run:
+  k: 1
+  fail_fast: false

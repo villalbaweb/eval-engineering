@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { runGroupHref, suggestedSuite, suitesUsing } from "@/entities/datasetGroups";
 import { api, type ImportOpts } from "@/shared/api";
+import type { ProfileView } from "@/shared/types";
 import { Badge, Card, ErrorBox, Loading, PageHead } from "@/shared/ui";
 
 function Result({ data }: { data: unknown }) {
@@ -10,18 +11,26 @@ function Result({ data }: { data: unknown }) {
 }
 
 /** Edit one candidate (typically: add `expected`) before accepting it. The logged transcript is kept server-side. */
-function CandidateEditor({ id, onDone }: { id: string; onDone: () => void }) {
+function CandidateEditor({ id, onDone, profile }: { id: string; onDone: () => void; profile?: ProfileView }) {
   const q = useQuery({ queryKey: ["candidate-yaml", id], queryFn: () => api.candidateYaml(id) });
   const [text, setText] = useState("");
   useEffect(() => { if (q.data) setText(q.data.content); }, [q.data]);
-  const save = useMutation({ mutationFn: () => api.saveCandidateYaml(id, text), onSuccess: onDone });
+  const save = useMutation({
+    mutationFn: () => api.saveCandidateYaml(id, text),
+    onSuccess: (r) => { if (!r.warnings?.length) onDone(); },  // keep the editor open to show warnings
+  });
+  const inv = profile?.inventory;
   return (
     <Card title={`Edit ${id}`} right={<div className="row">
       <button className="primary" disabled={save.isPending || text === q.data?.content} onClick={() => save.mutate()}>Save</button>
       <button onClick={onDone}>Close</button></div>}>
       <ErrorBox error={q.error ?? save.error} />
-      <p className="small muted" style={{ marginTop: 0 }}>Add what the right behaviour is, e.g. <code>expected: {"{ skills_loaded: [rubric-authoring], answer_contains: [pass@k] }"}</code>. Without
+      {save.data?.warnings?.length ? <div className="notice">Saved, but check these names: {save.data.warnings.join("; ")}</div> : null}
+      <p className="small muted" style={{ marginTop: 0 }}>Add what the right behaviour is, e.g. <code>expected: {"{ skills_loaded: [...], tool_calls: [{ name: ... }] }"}</code>. Without
         expectations only reference-free graders (judge, groundedness, guardrails, efficiency) can say anything. The transcript is hidden here and preserved.</p>
+      {inv && (inv.tools.length > 0 || inv.skills.length > 0) && (
+        <p className="small muted">{profile?.name} skills: {inv.skills.map((s) => <code key={s.name} style={{ marginRight: 4 }}>{s.name}</code>)}
+          · tools: {inv.tools.filter((t) => !t.name.startsWith("load_skill_")).map((t) => <code key={t.name} style={{ marginRight: 4 }}>{t.name}</code>)}</p>)}
       {q.isLoading ? <Loading /> : <textarea rows={16} value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="candidate yaml" />}
     </Card>
   );
@@ -42,22 +51,26 @@ export function DataSources() {
   const [group, setGroup] = useState("");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
-  const [lastAccepted, setLastAccepted] = useState<{ group: string; transcripts: boolean } | null>(null);
+  const [lastAccepted, setLastAccepted] = useState<{ group: string; transcripts: boolean; warnings: string[] } | null>(null);
 
+  const profile = catalog.data?.profile;
+  const defaults = profile?.defaults;
   const all = cands.data ?? [];
   const chosen = all.filter((c) => sel.has(c.id));
   const allTraces = chosen.length > 0 && chosen.every((c) => c.has_transcript);
-  // traces default to the 'traces' group, which the free 'traces' suite (trace target) already runs
-  const effectiveGroup = group || (allTraces ? "traces" : "accepted");
+  // traces default to the profile's trace group, which its trace suite (grades logged runs) already runs
+  const effectiveGroup = group || (allTraces ? defaults?.trace_group ?? "traces" : "accepted");
   const usedBy = suitesUsing(catalog.data, effectiveGroup);
+  const trafficVariants = profile ? profile.variants.filter((v) => v.capabilities.includes("traffic_sim")) : null;
+  const canTraffic = trafficVariants === null || trafficVariants.length > 0;
 
   const synth = useMutation({ mutationFn: () => api.synthesize(config, skipReview), onSuccess: () => { void refresh(); void qc.invalidateQueries({ queryKey: ["catalog"] }); } });
   const traffic = useMutation({ mutationFn: () => api.simulateTraffic(n, fault, trafficAgent || undefined) });
   const importM = useMutation({ mutationFn: () => api.importTraces(imp), onSuccess: refresh });
   const accept = useMutation({
     mutationFn: () => api.acceptCandidates([...sel], effectiveGroup),
-    onSuccess: () => {
-      setLastAccepted({ group: effectiveGroup, transcripts: allTraces });
+    onSuccess: (r) => {
+      setLastAccepted({ group: effectiveGroup, transcripts: allTraces, warnings: r.warnings ?? [] });
       setSel(new Set()); void refresh(); void qc.invalidateQueries({ queryKey: ["catalog"] });
     },
   });
@@ -77,37 +90,46 @@ export function DataSources() {
           <ErrorBox error={synth.error} /><Result data={synth.data && { generated: synth.data.generated, queued: synth.data.queued, duplicates: synth.data.duplicates_dropped, leaks: synth.data.leaks_dropped, ...(synth.data.file ? { file: synth.data.file } : {}) }} />
         </Card>
         <Card title="2 · Simulate traffic">
+          {!canTraffic ? <p className="small muted">{profile?.name} has no variant that can receive simulated traffic (none is runnable from the lab).
+            Use <strong>Import traces</strong> to bring in its logged runs instead.</p> : <>
           <div className="row"><label>sessions<input type="number" min={1} max={200} value={n} onChange={(e) => setN(+e.target.value)} style={{ width: 80 }} /></label>
             <label>fault rate<input type="number" min={0} max={1} step={0.1} value={fault} onChange={(e) => setFault(+e.target.value)} style={{ width: 80 }} /></label>
-            <label>agent<select value={trafficAgent} onChange={(e) => setTrafficAgent(e.target.value)}>
-              <option value="">copilot-baseline</option>{catalog.data?.agents.filter((a) => a.name !== "copilot-baseline").map((a) => <option key={a.name}>{a.name}</option>)}</select></label>
+            <label>variant<select value={trafficAgent} onChange={(e) => setTrafficAgent(e.target.value)}>
+              <option value="">{profile?.default_variant ?? "copilot-baseline"} (default)</option>
+              {(trafficVariants?.map((v) => v.name) ?? catalog.data?.agents.map((a) => a.name) ?? [])
+                .filter((v) => v !== (profile?.default_variant ?? "copilot-baseline")).map((v) => <option key={v}>{v}</option>)}</select></label>
             <button className="primary" disabled={traffic.isPending} onClick={() => traffic.mutate()}>Run</button></div>
           <p className="small muted">Simulated users talk to the agent; runs are traced to LangSmith (source=traffic) and saved locally.</p>
-          <ErrorBox error={traffic.error} /><Result data={traffic.data} />
+          <ErrorBox error={traffic.error} /><Result data={traffic.data} /></>}
         </Card>
         <Card title="3 · Import traces">
           <div className="row">
             <label>from<select value={imp.adapter ?? ""} onChange={(e) => setI({ adapter: e.target.value || undefined })}>
-              <option value="">auto</option><option value="langsmith">LangSmith</option><option value="jsonl">local traffic files</option></select></label>
+              <option value="">{profile?.traces.adapter ? `profile default (${profile.traces.adapter})` : "auto"}</option>
+              <option value="langsmith">LangSmith</option><option value="jsonl">local traffic files</option></select></label>
             <label>source<select value={imp.source ?? ""} onChange={(e) => setI({ source: e.target.value || undefined })}>
               <option value="">any</option><option>playground</option><option>traffic</option><option>experiment</option></select></label>
             <label>limit<input type="number" min={1} max={500} value={imp.limit} onChange={(e) => setI({ limit: +e.target.value || 50 })} style={{ width: 70 }} /></label>
           </div>
           <label className="row small" style={{ gap: 4, marginTop: 6, fontWeight: 400 }}><input type="checkbox" checked={!!imp.errors_only} onChange={(e) => setI({ errors_only: e.target.checked || undefined })} />errored runs only</label>
           <button className="primary" style={{ marginTop: 8 }} disabled={importM.isPending} onClick={() => importM.mutate()}>Import logged traces</button>
-          <p className="small muted">auto = LangSmith when enabled, otherwise the local traffic files. PII is scrubbed; duplicates dropped. Source filters apply to LangSmith.</p>
+          <p className="small muted">{profile?.traces.adapter || profile?.traces.path || profile?.traces.project
+            ? <>Defaults come from <strong>{profile.name}</strong>'s profile ({[profile.traces.adapter, profile.traces.project, profile.traces.path].filter(Boolean).join(", ")}); traces are read with its conventions. </>
+            : <>auto = LangSmith when enabled, otherwise the local traffic files. </>}
+            PII is scrubbed; duplicates dropped. Source filters apply to LangSmith.</p>
           <ErrorBox error={importM.error} /><Result data={importM.data && { fetched: importM.data.fetched, queued: importM.data.queued, duplicates: importM.data.duplicates_dropped }} />
         </Card>
       </div>
 
-      {editing && <CandidateEditor id={editing} onDone={() => { setEditing(null); void refresh(); }} />}
+      {editing && <CandidateEditor id={editing} profile={profile} onDone={() => { setEditing(null); void refresh(); }} />}
 
       {lastAccepted && (
         <div className="notice">Accepted into <strong>{lastAccepted.group}</strong>.{" "}
           {suitesUsing(catalog.data, lastAccepted.group).length
             ? <>Used by {suitesUsing(catalog.data, lastAccepted.group).join(", ")}. </>
             : <>No suite lists this group yet, but you can still run it. </>}
-          <Link to={runGroupHref(lastAccepted.group, suitesUsing(catalog.data, lastAccepted.group)[0] ?? suggestedSuite(lastAccepted.transcripts))}>Run it now…</Link>
+          {lastAccepted.warnings.length > 0 && <>Check: {lastAccepted.warnings.join("; ")}. </>}
+          <Link to={runGroupHref(lastAccepted.group, suitesUsing(catalog.data, lastAccepted.group)[0] ?? suggestedSuite(lastAccepted.transcripts, defaults))}>Run it now…</Link>
           {" · "}<Link to="/datasets">open in Datasets</Link>{" · "}<button onClick={() => setLastAccepted(null)}>dismiss</button>
         </div>)}
 

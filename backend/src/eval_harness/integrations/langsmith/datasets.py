@@ -10,11 +10,20 @@ from eval_harness.core.settings import get_settings
 from eval_harness.evals.domain.task import Task
 from eval_harness.integrations.langsmith.client import get_client, safe
 
-PREFIX = "eval-eng/"
+PREFIX = "eval-eng/"  # the lab's default; a profile can set its own (defaults.langsmith_prefix)
+
+
+def prefix() -> str:
+    """``<profile langsmith_prefix>/``, or the legacy ``eval-eng/`` (so existing datasets keep their names)."""
+    from eval_harness.profiles import active_profile
+
+    p = active_profile().defaults.langsmith_prefix
+    return f"{p.rstrip('/')}/" if p else PREFIX
 
 
 def dataset_name(group: str) -> str:
-    return group if group.startswith(PREFIX) else PREFIX + group
+    pre = prefix()
+    return group if group.startswith(pre) else pre + group
 
 
 @safe

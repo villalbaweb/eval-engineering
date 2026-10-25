@@ -34,13 +34,19 @@ async def synthesize(body: SynthesisBody) -> dict:
 
 class TrafficBody(BaseModel):
     n: int = 10
-    agent: str = "copilot-baseline"
+    agent: str | None = None  # variant (or legacy agent name); default: the profile's default variant
+    variant: str | None = None
     fault_rate: float = 0.0
 
 
 @router.post("/traffic/simulate")
 async def traffic(body: TrafficBody) -> dict:
-    return await simulate_traffic(n=body.n, agent=body.agent, fault_rate=body.fault_rate)
+    from eval_harness.profiles import VariantNotFound
+
+    try:
+        return await simulate_traffic(n=body.n, agent=body.variant or body.agent, fault_rate=body.fault_rate)
+    except (ValueError, VariantNotFound) as e:
+        raise HTTPException(400, str(e)) from e
 
 
 class ImportBody(BaseModel):
@@ -52,9 +58,9 @@ class ImportBody(BaseModel):
 
 @router.post("/traces/import")
 async def traces(body: ImportBody) -> dict:
-    from eval_harness.integrations.langsmith.client import enabled
+    from eval_harness.evals.data_sources.traces.importer import default_adapter
 
-    adapter = body.adapter or ("langsmith" if enabled() else "jsonl")
+    adapter = body.adapter or default_adapter()
     try:
         return await asyncio.to_thread(import_traces, adapter, limit=body.limit, source=body.source,
                                        errors_only=body.errors_only)
@@ -76,7 +82,15 @@ class AcceptBody(BaseModel):
 
 @router.post("/candidates/accept")
 def accept(body: AcceptBody) -> dict:
-    return review.accept(body.ids, group=body.group)
+    chosen = [c for c in review.list_candidates() if body.ids == ["all"] or c.id in set(body.ids)]
+    return {**review.accept(body.ids, group=body.group), "warnings": _inventory_warnings(chosen)}
+
+
+def _inventory_warnings(tasks: list) -> list[str]:
+    from eval_harness.profiles import active_profile
+    from eval_harness.profiles.inventory import expectation_warnings
+
+    return expectation_warnings(tasks, active_profile())
 
 
 @router.post("/candidates/reject")
@@ -117,4 +131,4 @@ def save_candidate_yaml(cid: str, body: YamlBody) -> dict:
         raise HTTPException(404) from e
     except Exception as e:  # yaml / validation errors -> show the reason in the editor
         raise HTTPException(422, f"invalid task: {e}") from e
-    return {"saved": t.id}
+    return {"saved": t.id, "warnings": _inventory_warnings([t])}

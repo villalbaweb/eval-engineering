@@ -46,7 +46,10 @@ class ExperimentRunner:
     def __init__(self, suite: Suite, tasks: list[Task], target: Target, *, name: str | None = None,
                  hooks: list[RunnerHook] | None = None, on_event: EventCb | None = None,
                  extra_snapshot: dict[str, Any] | None = None, experiment_id: str | None = None):
+        from eval_harness.profiles import active_profile
+
         self.suite, self.tasks, self.target = suite, tasks, target
+        self.profile = active_profile()  # the agent under test; graders read its conventions
         self.hooks = hooks or []
         self.on_event = on_event or (lambda e: None)
         self.pipeline = GraderPipeline(suite.graders, fail_fast=suite.run.fail_fast)
@@ -60,8 +63,9 @@ class ExperimentRunner:
     # ------------------------------------------------------------------
     def _snapshot(self, extra: dict[str, Any]) -> dict[str, Any]:
         roles = {r: resolve_role(r).model_dump() for r in ("agent", "judge", "simulator")}
+        unset = {k for k in ("variant", "mode") if getattr(self.suite, k) is None}  # keep old snapshots' shape
         return {
-            "suite": self.suite.model_dump(mode="json"),
+            "suite": self.suite.model_dump(mode="json", exclude=unset),
             "target": self.target.snapshot(),
             "models": roles,
             "judge_configured": judge_configured(),
@@ -70,6 +74,7 @@ class ExperimentRunner:
             "n_tasks": len(self.tasks),
             "git_sha": git_sha(),
             "langsmith": get_settings().langsmith_enabled,
+            "profile": self.profile.name,
             **extra,
         }
 
@@ -93,13 +98,14 @@ class ExperimentRunner:
                 return None
             trial = Trial(id=new_id("t_"), experiment_id=self.exp.id, task_id=task.id, index=index)
             t0 = time.perf_counter()
-            info = TrialInfo(self.exp.id, trial.id, index, self.suite.name)
+            info = TrialInfo(self.exp.id, trial.id, index, self.suite.name,
+                             {"profile": self.profile.name, "variant": self.exp.snapshot.get("variant")})
             self._emit("trial_start", task_id=task.id, index=index)
             transcript, outcome = await self.target.run(task, self.suite.run, info)
             trial.transcript, trial.outcome = transcript, outcome
             if outcome.status == "ok":
                 trial.grades = await self.pipeline.run(
-                    GradeContext(task, transcript, outcome, trial.id, self.exp.id))
+                    GradeContext(task, transcript, outcome, trial.id, self.exp.id, self.profile))
             trial.duration_s = round(time.perf_counter() - t0, 3)
             trial_repo.save(trial)
             self.exp.done_trials += 1

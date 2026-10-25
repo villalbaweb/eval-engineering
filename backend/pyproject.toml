@@ -53,6 +53,7 @@ packages = ["src/eval_harness"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["golden: no-regression gate against tests/golden/baseline.json (runs the whole lab offline, ~15 s)"]
 
 [tool.ruff]
 line-length = 120
