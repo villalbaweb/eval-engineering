@@ -24,6 +24,7 @@ class LaunchRequest(BaseModel):
     target: str | None = None
     max_tasks: int | None = None
     graders: list[dict[str, Any]] | None = None
+    datasets: list[str] | None = None  # run these dataset groups with the suite's graders/target
     model: str | None = None  # "provider:model" override for the agent (model sweeps)
 
 
@@ -52,7 +53,8 @@ def _apply_model(runner, spec: str) -> None:
 def list_experiments(limit: int = 100) -> list[dict]:
     return [e.model_dump(mode="json", exclude={"snapshot"}) | {
         "model": e.snapshot.get("models", {}).get("agent", {}).get("model"),
-        "agent": e.snapshot.get("target", {}).get("agent_config", {}).get("name")} for e in experiments.list(limit)]
+        "agent": e.snapshot.get("target", {}).get("agent_config", {}).get("name"),
+        "datasets": e.snapshot.get("suite", {}).get("datasets")} for e in experiments.list(limit)]
 
 
 @router.get("/experiments/{exp_id}")

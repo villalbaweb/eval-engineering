@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/shared/api";
 import { Badge, Card, ErrorBox, Loading, PageHead, Tabs } from "@/shared/ui";
 
@@ -59,7 +60,7 @@ export function Catalog() {
           )}
           {tab === "suites" && (
             <Card title="Suites (evals/suites/*.yaml)"><table><thead><tr><th>name</th><th>k</th><th>agent</th><th>datasets</th><th>graders</th></tr></thead><tbody>
-              {c.suites.map((s) => <tr key={s.name}><td><strong>{s.name}</strong><div className="small muted">{s.description}</div></td><td>{s.k}</td><td className="mono">{s.agent}</td><td>{s.datasets.join(", ")}</td><td className="small">{s.graders.join(", ")}</td></tr>)}
+              {c.suites.map((s) => <tr key={s.name}><td><strong>{s.name}</strong> <Link className="small" to={`/suites?name=${s.name}`}>edit</Link> · <Link className="small" to={`/experiments?suite=${s.name}`}>run</Link><div className="small muted">{s.description}</div></td><td>{s.k}</td><td className="mono">{s.agent}</td><td>{s.datasets.join(", ")}</td><td className="small">{s.graders.join(", ")}</td></tr>)}
             </tbody></table></Card>
           )}
           {tab === "plugins" && (

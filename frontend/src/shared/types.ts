@@ -28,7 +28,7 @@ export interface Experiment {
   id: string; name: string; suite: string; target: string; status: ExperimentStatus;
   created_at: string; finished_at: string | null; total_trials: number; done_trials: number;
   summary: Summary; langsmith_url: string | null; error: string | null;
-  snapshot: Record<string, any>; model?: string; agent?: string;
+  snapshot: Record<string, any>; model?: string; agent?: string; datasets?: string[];
 }
 
 export interface GradeLite { grader: string; passed: boolean | null; skipped: boolean; score: number | null; layer: number }

@@ -19,7 +19,13 @@ const post = <T,>(path: string, body?: unknown) => req<T>(path, { method: "POST"
 export interface LaunchBody {
   suite: string; name?: string; agent?: string; k?: number; concurrency?: number; tool_mode?: string;
   target?: string; max_tasks?: number; model?: string;
+  /** run these dataset groups instead of the suite's own (the suite supplies graders/target/agent) */
+  datasets?: string[];
 }
+
+export interface ImportOpts { limit: number; adapter?: string; source?: string; errors_only?: boolean }
+
+const put = <T,>(path: string, content: string) => req<T>(path, { method: "PUT", body: JSON.stringify({ content }) });
 
 export const api = {
   catalog: () => req<Catalog>("/catalog"),
@@ -40,14 +46,22 @@ export const api = {
     req<Calibration>(`/calibration${experimentId ? `?experiment_id=${experimentId}` : ""}`),
   datasetFiles: () => req<string[]>("/datasets/files"),
   datasetFile: (p: string) => req<{ path: string; content: string }>(`/datasets/files/${p}`),
-  saveDatasetFile: (p: string, content: string) =>
-    req<{ saved: string; tasks: number }>(`/datasets/files/${p}`, { method: "PUT", body: JSON.stringify({ content }) }),
+  saveDatasetFile: (p: string, content: string) => put<{ saved: string; tasks: number }>(`/datasets/files/${p}`, content),
   suiteYaml: (name: string) => req<{ yaml: string; n_tasks: number }>(`/suites/${name}`),
+  saveSuite: (name: string, content: string) =>
+    put<{ saved: string; n_tasks: number; warning: string | null }>(`/suites/${name}`, content),
+  faults: () => req<string[]>("/faults"),
   synthesisConfigs: () => req<string[]>("/synthesis/configs"),
-  synthesize: (config: string) => post<Record<string, any>>("/synthesis/run", { config }),
-  simulateTraffic: (n: number, fault_rate: number) => post<Record<string, any>>("/traffic/simulate", { n, fault_rate }),
-  importTraces: (limit: number) => post<Record<string, any>>("/traces/import", { limit }),
+  synthesize: (config: string, accept = false) => post<Record<string, any>>("/synthesis/run", { config, accept }),
+  simulateTraffic: (n: number, fault_rate: number, agent?: string) =>
+    post<Record<string, any>>("/traffic/simulate", { n, fault_rate, ...(agent ? { agent } : {}) }),
+  importTraces: (o: ImportOpts) => post<Record<string, any>>("/traces/import", o),
   candidates: () => req<Candidate[]>("/candidates"),
+  candidateYaml: (id: string) => req<{ id: string; content: string }>(`/candidates/${id}/yaml`),
+  saveCandidateYaml: (id: string, content: string) => put<{ saved: string }>(`/candidates/${id}/yaml`, content),
+  langsmith: () => req<{ enabled: boolean; has_key: boolean; tracing: boolean; project: string }>("/integrations/langsmith"),
+  pushDataset: (group: string) => post<Record<string, any>>(`/integrations/langsmith/datasets/${group}/push`),
+  pullDataset: (name: string) => post<Record<string, any>>(`/integrations/langsmith/datasets/${name}/pull`),
   acceptCandidates: (ids: string[], group: string) => post<Record<string, any>>("/candidates/accept", { ids, group }),
   rejectCandidates: (ids: string[]) => post<Record<string, any>>("/candidates/reject", { ids }),
   chatFeedback: (run_id: string, thumbs: number) => post("/chat/feedback", { run_id, thumbs }),

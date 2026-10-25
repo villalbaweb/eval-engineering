@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -86,11 +87,29 @@ def load_suite(name: str) -> Suite:
     p = get_settings().suites_dir / f"{name}.yaml"
     if not p.exists():
         raise FileNotFoundError(f"suite '{name}' not found. Available: {[s.name for s in list_suites()]}")
-    suite = Suite.model_validate(yaml.safe_load(p.read_text(encoding="utf-8")))
+    return parse_suite(yaml.safe_load(p.read_text(encoding="utf-8")), name=name)
+
+
+def parse_suite(data: Any, *, name: str) -> Suite:
+    suite = Suite.model_validate(data)
     keys = [g.key for g in suite.graders]
     if len(set(keys)) != len(keys):
         raise ValueError(f"suite '{name}' has duplicate grader names: {keys}")
     return suite
+
+
+def validate_suite_refs(suite: Suite) -> list[str]:
+    """Problems a suite file can parse with but cannot run with (unknown grader/target/agent)."""
+    from eval_harness.agent.config import list_agent_configs
+    from eval_harness.evals.graders.base import grader_registry
+    from eval_harness.evals.targets.base import target_registry
+
+    errs = [f"unknown grader type '{g.type}'" for g in suite.graders if g.type not in grader_registry]
+    if suite.target not in target_registry:
+        errs.append(f"unknown target '{suite.target}' (have {target_registry.names()})")
+    if suite.agent not in {a.name for a in list_agent_configs()}:
+        errs.append(f"unknown agent '{suite.agent}'")
+    return errs
 
 
 def list_suites() -> list[Suite]:

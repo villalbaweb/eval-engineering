@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -7,7 +8,15 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from eval_harness.core.settings import get_settings
-from eval_harness.evals.datasets.loader import _read_tasks, dataset_files, list_suites, load_tasks
+from eval_harness.evals.datasets.loader import (
+    _read_tasks,
+    dataset_files,
+    load_suite,
+    load_tasks,
+    parse_suite,
+    validate_suite_refs,
+)
+from eval_harness.evals.domain.suite import Suite
 from eval_harness.evals.domain.task import Task
 
 router = APIRouter(tags=["datasets"])
@@ -62,14 +71,52 @@ def save_file(path: str, body: SaveBody) -> dict:
     return {"saved": path, "tasks": len(parsed)}
 
 
+_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _n_tasks(suite: Suite) -> int:
+    return len(load_tasks(suite.datasets, include_tags=suite.include_tags, exclude_tags=suite.exclude_tags,
+                          kinds=suite.kinds))
+
+
 @router.get("/suites/{name}")
 def suite_yaml(name: str) -> dict:
     p = get_settings().suites_dir / f"{name}.yaml"
-    if not p.exists():
+    if not _NAME.match(name) or not p.exists():
         raise HTTPException(404)
-    suite = next(s for s in list_suites() if s.name == name)
-    return {"yaml": p.read_text(encoding="utf-8"), "n_tasks": len(load_tasks(suite.datasets,
-            include_tags=suite.include_tags, exclude_tags=suite.exclude_tags, kinds=suite.kinds))}
+    return {"yaml": p.read_text(encoding="utf-8"), "n_tasks": _n_tasks(load_suite(name))}
+
+
+@router.put("/suites/{name}")
+def save_suite(name: str, body: SaveBody) -> dict:
+    """Create or replace ``evals/suites/<name>.yaml``. Rejected unless it parses, its ``name`` matches
+    the file, and every grader/target/agent it names exists. Selecting 0 tasks is allowed (warned)."""
+    if not _NAME.match(name):
+        raise HTTPException(400, "suite names are lowercase letters, digits, '-' and '_'")
+    try:
+        data = yaml.safe_load(body.content)
+        suite = parse_suite(data, name=name)
+    except Exception as e:
+        raise HTTPException(422, f"invalid suite: {e}") from e
+    if suite.name != name:
+        raise HTTPException(422, f"'name: {suite.name}' must match the file name '{name}'")
+    errs = validate_suite_refs(suite)
+    try:
+        n = _n_tasks(suite)
+    except ValueError as e:  # e.g. duplicate task ids across the selected datasets
+        errs.append(str(e))
+        n = 0
+    if errs:
+        raise HTTPException(422, "; ".join(errs))
+    p = get_settings().suites_dir / f"{name}.yaml"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body.content, encoding="utf-8")
+    return {"saved": name, "n_tasks": n, "warning": None if n else "this suite selects no tasks yet"}
+
+
+@router.get("/faults")
+def faults() -> list[str]:
+    return [p.stem for p in sorted((get_settings().evals_dir / "faults").glob("*.yaml"))]
 
 
 @router.get("/rubrics")

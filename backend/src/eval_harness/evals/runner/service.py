@@ -23,9 +23,14 @@ def prepare_runner(suite_name: str, *, overrides: dict[str, Any] | None = None, 
                    on_event: EventCb | None = None, hooks: list[RunnerHook] | None = None,
                    tasks: list[Task] | None = None) -> ExperimentRunner:
     """Build a runner. ``overrides`` may set: k, concurrency, tool_mode, agent, target, max_tasks,
-    target_options (dict), graders (list[GraderSpec dict]) - the same knobs the UI exposes."""
+    target_options (dict), graders (list[GraderSpec dict]), datasets (list of groups/paths) - the same
+    knobs the UI exposes. ``datasets`` uses the suite as a template (graders, target, agent) for other
+    data, and drops the suite's tag/kind filters, which were written for its own datasets."""
     ov = dict(overrides or {})
     suite: Suite = load_suite(suite_name)
+    if ov.get("datasets"):
+        suite = suite.model_copy(update={"datasets": list(ov["datasets"]), "include_tags": [],
+                                         "exclude_tags": [], "kinds": []})
     run_over = {k: ov[k] for k in ("k", "concurrency", "tool_mode", "timeout_s", "max_tasks", "fail_fast")
                 if ov.get(k) is not None}
     suite = suite.model_copy(update={
@@ -38,7 +43,8 @@ def prepare_runner(suite_name: str, *, overrides: dict[str, Any] | None = None, 
     if run_over.get("max_tasks"):
         the_tasks = the_tasks[: run_over["max_tasks"]]
     if not the_tasks:
-        raise ValueError(f"suite '{suite_name}' selects no tasks")
+        raise ValueError(f"suite '{suite_name}' selects no tasks"
+                         + (f" from datasets {suite.datasets}" if ov.get("datasets") else ""))
     target = target_registry.get(suite.target).create(suite, **(ov.get("target_options") or {}))
     return ExperimentRunner(suite, the_tasks, target, name=name, on_event=on_event,
                             hooks=hooks if hooks is not None else default_hooks())

@@ -32,6 +32,8 @@ def run(
     target: Annotated[str | None, typer.Option(help="local_agent | multiturn_sim | ...")] = None,
     max_tasks: Annotated[int | None, typer.Option()] = None,
     name: Annotated[str | None, typer.Option()] = None,
+    dataset: Annotated[list[str] | None, typer.Option(
+        help="run this dataset group instead of the suite's own (repeatable); the suite supplies graders/target")] = None,
     failures: Annotated[bool, typer.Option("--failures/--no-failures")] = True,
 ) -> None:
     """Run a suite and print the metrics table."""
@@ -46,7 +48,7 @@ def run(
     try:
         runner = prepare_runner(suite, name=name, on_event=on_event, overrides={
             "agent": agent, "k": k, "concurrency": concurrency, "tool_mode": tool_mode, "target": target,
-            "max_tasks": max_tasks})
+            "max_tasks": max_tasks, "datasets": dataset})
     except (FileNotFoundError, KeyError, ValueError) as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(2) from e

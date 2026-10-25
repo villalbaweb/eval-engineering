@@ -61,6 +61,39 @@ def update_candidate(cid: str, patch: dict[str, Any]) -> Task:
     return new
 
 
+def candidate_yaml(cid: str) -> str:
+    """The candidate as editable YAML. The logged transcript is hidden (large, not meant for hand
+    edits) and kept untouched by :func:`save_candidate_yaml`."""
+    cur = get_candidate(cid)
+    if cur is None:
+        raise KeyError(cid)
+    data = cur.model_dump(mode="json", exclude_defaults=True)
+    meta = {k: v for k, v in data.get("metadata", {}).items() if k != "transcript"}
+    data.pop("metadata", None)
+    if meta:
+        data["metadata"] = meta
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
+def save_candidate_yaml(cid: str, text: str) -> Task:
+    cur = get_candidate(cid)
+    if cur is None:
+        raise KeyError(cid)
+    data = yaml.safe_load(text)
+    if not isinstance(data, dict):
+        raise ValueError("expected a YAML mapping (one task)")
+    if data.get("id", cid) != cid:
+        raise ValueError("the id cannot be changed here (reject and re-import instead)")
+    meta = dict(data.get("metadata") or {})
+    if "transcript" in cur.metadata:
+        meta["transcript"] = cur.metadata["transcript"]
+    new = Task.model_validate({**data, "id": cid, "metadata": meta})
+    (_dir() / f"{cid}.yaml").write_text(
+        yaml.safe_dump(new.model_dump(mode="json", exclude_defaults=True), sort_keys=False, allow_unicode=True),
+        encoding="utf-8")
+    return new
+
+
 def reject(ids: list[str]) -> int:
     n = 0
     for cid in ids:

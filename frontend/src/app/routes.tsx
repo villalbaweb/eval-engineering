@@ -8,6 +8,7 @@ import { datasetsFeature } from "@/features/datasets";
 import { experimentsFeature } from "@/features/experiments";
 import { playgroundFeature } from "@/features/playground";
 import { resultsFeature } from "@/features/results";
+import { suitesFeature } from "@/features/suites";
 import { transcriptsFeature } from "@/features/transcripts";
 
 export interface Feature {
@@ -18,6 +19,6 @@ export interface Feature {
 
 /** To add a page: create features/<name>/index.tsx exporting a Feature and list it here. */
 export const features: Feature[] = [
-  playgroundFeature, catalogFeature, datasetsFeature, dataSourcesFeature,
+  playgroundFeature, catalogFeature, datasetsFeature, suitesFeature, dataSourcesFeature,
   experimentsFeature, resultsFeature, transcriptsFeature, compareFeature, annotateFeature, calibrationFeature,
 ];

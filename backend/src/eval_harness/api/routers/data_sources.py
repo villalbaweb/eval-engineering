@@ -94,3 +94,27 @@ def patch(cid: str, body: PatchBody) -> dict:
         return review.update_candidate(cid, body.patch).model_dump(mode="json", exclude={"metadata"})
     except KeyError as e:
         raise HTTPException(404) from e
+
+
+@router.get("/candidates/{cid}/yaml")
+def candidate_yaml(cid: str) -> dict:
+    try:
+        return {"id": cid, "content": review.candidate_yaml(cid)}
+    except KeyError as e:
+        raise HTTPException(404) from e
+
+
+class YamlBody(BaseModel):
+    content: str
+
+
+@router.put("/candidates/{cid}/yaml")
+def save_candidate_yaml(cid: str, body: YamlBody) -> dict:
+    """Edit a candidate before accepting it (typically: add ``expected``). The transcript is preserved."""
+    try:
+        t = review.save_candidate_yaml(cid, body.content)
+    except KeyError as e:
+        raise HTTPException(404) from e
+    except Exception as e:  # yaml / validation errors -> show the reason in the editor
+        raise HTTPException(422, f"invalid task: {e}") from e
+    return {"saved": t.id}

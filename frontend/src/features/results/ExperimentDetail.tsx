@@ -42,7 +42,9 @@ export function ExperimentDetail() {
     return () => ctl.abort();
   }, [id, running, qc]);
 
-  const regrade = useMutation({ mutationFn: () => api.regrade(id), onSuccess: (r) => nav(`/experiments/${r.id}`) });
+  const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
+  const [regradeSuite, setRegradeSuite] = useState("");
+  const regrade = useMutation({ mutationFn: () => api.regrade(id, regradeSuite ? { suite: regradeSuite } : {}), onSuccess: (r) => nav(`/experiments/${r.id}`) });
   const cancel = useMutation({ mutationFn: () => api.cancel(id) });
 
   const rows = useMemo(() => (trials.data ?? []).filter((t) => (filter === "all" ? true : filter === "failed" ? !t.passed : t.passed)), [trials.data, filter]);
@@ -53,12 +55,16 @@ export function ExperimentDetail() {
 
   return (
     <>
-      <PageHead title={e.name} sub={`${e.suite} · target ${e.target} · ${agentModel?.provider}:${agentModel?.model} · git ${e.snapshot.git_sha ?? "–"}`}
+      <PageHead title={e.name} sub={`${e.suite} · data ${(e.snapshot.suite?.datasets ?? []).join(", ")} · target ${e.target} · ${agentModel?.provider}:${agentModel?.model} · git ${e.snapshot.git_sha ?? "–"}`}
         actions={<>
           <StatusBadge status={e.status} />
           {e.langsmith_url && <a href={e.langsmith_url} target="_blank" rel="noreferrer">LangSmith ↗</a>}
           {running && <button onClick={() => cancel.mutate()}>Cancel</button>}
-          {!running && e.target !== "replay" && <button onClick={() => regrade.mutate()} disabled={regrade.isPending} title="Re-run the graders on the stored transcripts (agent is not re-run)">Re-grade</button>}
+          {!running && e.target !== "replay" && <>
+            <select value={regradeSuite} onChange={(ev) => setRegradeSuite(ev.target.value)} aria-label="graders for re-grade" title="Whose graders to apply">
+              <option value="">graders: {e.suite} (current files)</option>
+              {catalog.data?.suites.filter((s) => s.name !== e.suite).map((s) => <option key={s.name} value={s.name}>graders: {s.name}</option>)}</select>
+            <button onClick={() => regrade.mutate()} disabled={regrade.isPending} title="Re-run the graders on the stored transcripts (agent is not re-run)">Re-grade</button></>}
           <Link to={`/compare?a=${e.id}`}>Compare…</Link>
         </>} />
       <ErrorBox error={e.error ?? regrade.error} />

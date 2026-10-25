@@ -7,10 +7,10 @@ import { Badge, Card, ErrorBox, PageHead } from "@/shared/ui";
 interface Msg { role: "user" | "assistant"; content: string; run_id?: string; skills?: string[]; rated?: number }
 interface TraceItem { kind: "skill" | "tool" | "err" | "info"; text: string; sub?: string }
 
-const FAULTS = ["", "flaky_kb", "kb_down", "empty_kb"];
-
 export function Playground() {
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
+  const faults = useQuery({ queryKey: ["faults"], queryFn: api.faults });
+  const FAULTS = ["", ...(faults.data ?? [])];
   const [agent, setAgent] = useState("copilot-baseline");
   const [fault, setFault] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -53,7 +53,7 @@ export function Playground() {
 
   return (
     <>
-      <PageHead title="Playground" sub="Chat with the Eval Copilot and watch skills load and tools fire. Every chat is traced to LangSmith (source=playground)."
+      <PageHead title="Playground" sub="Chat with the Eval Copilot and watch skills load and tools fire. Every chat is traced to LangSmith (source=playground); turn chats into tasks via Data sources → Import (source: playground)."
         actions={<>
           <label>agent
             <select value={agent} onChange={(e) => setAgent(e.target.value)}>

@@ -126,7 +126,7 @@ If the two runs are not like-for-like (different tasks or trial counts) it print
 **What you learn.** This is the **online → offline loop**: real behaviour becomes test material. Nothing is graded and nothing enters a dataset until you accept it. *Real run:* 19 queued, 1 dropped (it was identical to an existing task). The duplicate filter only catches near-identical wording, so three differently worded "rubric" questions all survive: curate rather than accept everything.
 
 #### Step 9 · `evalh candidates`: the review queue
-**What it does.** Lists the queued candidates (id, source, first 90 characters of the input). `--accept ID` (repeatable) or `--accept all` moves them into `evals/datasets/<group>/<group>.yaml` (`--group traces` is what step 10 reads).
+**What it does.** Lists the queued candidates (id, source, first 90 characters of the input). `--accept ID` (repeatable) or `--accept all` moves them into `evals/datasets/<group>/<group>.yaml` (`--group traces` is what step 10 reads; any other group can still be run with `evalh run traces --dataset <group>`). In the UI the same queue has an **edit** button per candidate and a **Run it now…** link after accepting ([4.15](#415-traffic-simulation--trace-import--trace-grading-e10-e12)).
 
 **How it works.** One YAML file per candidate in `evals/candidates/`. Accepting appends the task to the group file (imported traces keep their transcript) and removes it from the queue. Rejecting is available in the UI (Data sources) and the API.
 
@@ -364,7 +364,7 @@ See [section 7](#7-docker).
 
 | Command | What it does |
 |---|---|
-| `evalh run SUITE` | Run a suite. Options: `--agent NAME`, `--k N`, `--concurrency N`, `--tool-mode live\|record\|replay`, `--target local_agent\|multiturn_sim\|trace`, `--max-tasks N`, `--name TEXT`, `--no-failures` |
+| `evalh run SUITE` | Run a suite. Options: `--agent NAME`, `--k N`, `--concurrency N`, `--tool-mode live\|record\|replay`, `--target local_agent\|multiturn_sim\|trace`, `--max-tasks N`, `--name TEXT`, `--dataset GROUP` (repeatable: run that data with this suite's graders/target), `--no-failures` |
 | `evalh show ID\|latest` | Re-print a stored experiment (`--no-failures` hides the failure table) |
 | `evalh regrade ID [--suite S]` | Re-grade stored transcripts with the suite's *current* graders (agent not re-run) |
 | `evalh compare A B` | B vs A: delta, z-test, McNemar, regressions/improvements |
@@ -408,7 +408,11 @@ uv run evalh run regression                              # 17 tasks that must ke
 uv run evalh run capability --k 5                        # 11 hard tasks, 5 trials each
 uv run evalh run skill-selection --k 3 --concurrency 8
 ```
-**UI:** **Experiments → Launch** (suite, agent, k, max tasks, tool mode, model override) → redirects to the live page. **API:** `POST /api/experiments` ([section 8](#8-api-reference)).
+**UI:** **Experiments → Launch** (suite, agent, target, k, max tasks, concurrency, tool mode, model override, name) → redirects to the live page. **API:** `POST /api/experiments` ([section 8](#8-api-reference)).
+
+**Run any dataset group with a suite's graders.** Tick dataset groups under the Launch form (or `uv run evalh run traces --dataset accepted`, repeatable). The suite then acts as a *template*: its graders, target and agent are used on that data, and its tag/kind filters are dropped (they were written for its own datasets). The datasets actually used are stored in the snapshot, shown on the experiment page and in History ("data: …"), and appear in `compare`'s config diff. Pick the template to fit the data: `traces` (trace target, free, reference-free graders) for imported traces; `smoke`/`regression` for tasks with `expected` filled in.
+
+**Links that pre-fill the form:** `/experiments?suite=traces&datasets=accepted`, used by the "run" links on Datasets, Data sources and Suites.
 
 **Built-in suites**
 
@@ -426,7 +430,7 @@ uv run evalh run skill-selection --k 3 --concurrency 8
 
 **Reading the output (CLI)**: header (model, k, git sha) → `trial pass rate` with 95% CI, `pass@k`, `pass^k` → *by grader* and *by tag* tables → reliability (`reliable / flaky / systematic`) → latency/tokens/cost → failed-trials table with the first failed grader's reason. `skipped` counts mean a grader had nothing to check or an earlier layer already failed.
 
-**UI results page** (`/experiments/:id`): KPI tiles, breakdowns, reliability, cost, trial table (filter failed/passed/all; click a row for the transcript). While running it shows live progress (SSE) and a **Cancel** button. **Re-grade** reruns graders on stored transcripts.
+**UI results page** (`/experiments/:id`): KPI tiles, breakdowns, reliability, cost, trial table (filter failed/passed/all; click a row for the transcript). While running it shows live progress (SSE) and a **Cancel** button. **Re-grade** reruns graders on stored transcripts; the selector next to it applies another suite's graders (default: the run's own suite, as the files are now).
 
 **Trial page** (`/trials/:id`): step-by-step transcript (tool calls with args, results, latency, `replayed`/`fault` badges), every grader verdict with rationale, the task's expectations, guardrail events.
 
@@ -530,6 +534,10 @@ Target `multiturn_sim`: after each agent reply a user message is produced from `
 ### 4.13 Datasets (tasks)
 - Files: `evals/datasets/<group>/*.yaml` (or `.jsonl`). A suite selects groups via `datasets:` (folder, file or glob relative to `evals/datasets`).
 - UI → **Datasets**: edit a file; **Save validates every task** (errors shown with the reason). Or edit in your editor.
+  - Each group shows its task count and which suites use it ("in no suite" means only an ad-hoc run reaches it), plus a **run** link that opens Experiments pre-filled.
+  - **New file** creates a draft at any path (a new folder = a new group); nothing is written until Save.
+  - **LangSmith** (when enabled): *Push to LangSmith* for the open group, *Pull* a LangSmith dataset by name into `evals/datasets/langsmith/`.
+- UI → **Suites**: edit any `evals/suites/*.yaml`, or **create** one by copying an existing suite. Save rejects unknown grader types, targets and agents, a `name:` that differs from the file name, and duplicate task ids across the selected datasets; selecting 0 tasks saves with a warning. The page lists the dataset groups, grader types and targets you can use.
 - `uv run evalh datasets validate` → task count + tasks selected per suite. Duplicate task ids across files are an error.
 - Schema: [5.1](#51-task).
 
@@ -547,7 +555,7 @@ uv run evalh candidates --accept all --group synthetic
 - Each config is `evals/synthesis/<name>.yaml` ([5.4](#54-synthesis-config)). With a real synthesizer model the queries are LLM-written; **offline** a deterministic template fills in (so the tuples/labels are still right).
 - Quality gates on every candidate: PII scrub, near-duplicate removal (vs. existing tasks *and* the queue), label-leak check. Result counts are printed (`queued`, `duplicates_dropped`, `leaks_dropped`) and the UI shows diversity per dimension in the CLI output.
 - Generated tasks carry `source: synthetic:<generator>`; results split by `source` in `by_source`.
-- UI: **Data sources → 1 · Synthesize** then review below.
+- UI: **Data sources → 1 · Synthesize** then review below. "skip review" writes straight to datasets (same as `--accept`).
 - Review rule of thumb: skim at least 10–20% by hand; reject unrealistic or ambiguous items; edit `expected` where the right behaviour is clear.
 
 ### 4.15 Traffic simulation → trace import → trace grading (E10, E12)
@@ -567,6 +575,13 @@ uv run evalh run traces                                      # grade the LOGGED 
 - E12: build a synthetic set and a trace-imported set for the same intents; compare `by_source` pass rates. A large gap means your synthetic data is unrepresentative.
 - Imported text is PII-scrubbed (emails, API keys, card/phone numbers) before it is stored.
 - LangSmith import filters: `--source traffic|playground|experiment`, `--errors-only`; window = last 72 h ⚠.
+
+**The same loop in the UI (Playground chat → task → run):**
+1. **Playground**: chat. The run is traced to LangSmith with `source=playground` (nothing is stored locally, so this path needs LangSmith ⚠; for offline use simulated traffic and `from: local traffic files`).
+2. **Data sources → 3 · Import traces**: `from` (auto / LangSmith / local traffic files), `source` (e.g. `playground`), `limit`, `errored runs only`. Wait a few seconds after chatting; traces can lag.
+3. **Review queue → edit**: opens the candidate as YAML (transcript hidden and preserved). Add `expected` if you know the right behaviour; leave it empty to grade reference-free only.
+4. **Accept**: the group defaults to `traces` when every selected candidate is a logged trace (the `traces` suite already runs that group), otherwise `accepted`. The line above the table says which file it writes and which suites use the group.
+5. The banner after accepting has **Run it now…**, which opens Experiments with the group ticked and a fitting suite as the template (`traces` for logged transcripts).
 
 ### 4.16 LangSmith integration ⚠ (needs `LANGSMITH_API_KEY` + `LANGSMITH_TRACING=true`)
 Check status: UI sidebar ("LangSmith: eval-engineering") or `GET /api/integrations/langsmith`.
@@ -734,7 +749,7 @@ Base `http://localhost:8000/api`. Interactive docs at `/docs`.
 | `GET /catalog` | tools, skills, graders, agents, suites, datasets, models, LangSmith status |
 | `POST /chat/stream` | SSE chat. Body `{messages:[{role,content}], agent?, fault_profile?}`. Events: `start, tool_start, tool_end, skill_loaded, guardrail, model, done, error, end` |
 | `POST /chat/feedback` | `{run_id, thumbs: 0\|1, comment?}` |
-| `POST /experiments` | launch. Body `{suite, name?, agent?, k?, concurrency?, tool_mode?, target?, max_tasks?, graders?, model?}` → `{id,total}` |
+| `POST /experiments` | launch. Body `{suite, name?, agent?, k?, concurrency?, tool_mode?, target?, max_tasks?, graders?, datasets?, model?}` → `{id,total}`. `datasets` runs those groups with the suite as template |
 | `GET /experiments` · `GET /experiments/{id}` | list · detail (summary, snapshot) |
 | `GET /experiments/{id}/events` | SSE progress: `experiment_started, trial_start, trial_done, experiment_done` (replays history to late subscribers) |
 | `GET /experiments/{id}/trials` · `GET /trials/{trial_id}` | trial list · full transcript + grades + task |
@@ -743,10 +758,10 @@ Base `http://localhost:8000/api`. Interactive docs at `/docs`.
 | `GET /annotations/queue?experiment_id=&only_unlabeled=` · `POST /annotations` | label queue · `{trial_id, good, failure_tags[], note}` |
 | `GET /calibration?experiment_id=` | grader-vs-human metrics |
 | `GET /datasets/tasks?group=&tag=` · `GET\|PUT /datasets/files/{path}` | tasks · read/save YAML (PUT validates, 422 on error) |
-| `GET /suites/{name}` · `GET /rubrics` | suite YAML + selected task count · rubrics |
+| `GET\|PUT /suites/{name}` · `GET /rubrics` · `GET /faults` | suite YAML + selected task count / create-or-save (validated, 422 on error) · rubrics · fault profiles |
 | `GET /synthesis/configs` · `POST /synthesis/run` | configs · `{config}` |
 | `POST /traffic/simulate` · `POST /traces/import` | `{n, agent?, fault_rate}` · `{adapter?, limit, source?, errors_only}` |
-| `GET /candidates` · `POST /candidates/accept\|reject` · `PATCH /candidates/{id}` | review queue (`{ids, group}`) |
+| `GET /candidates` · `POST /candidates/accept\|reject` · `PATCH /candidates/{id}` · `GET\|PUT /candidates/{id}/yaml` | review queue (`{ids, group}`) · edit one candidate as YAML (transcript preserved) |
 | `GET /integrations/langsmith` · `POST /integrations/langsmith/datasets/{x}/push\|pull` | status · dataset sync ⚠ |
 
 ```bash
